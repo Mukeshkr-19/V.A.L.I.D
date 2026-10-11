@@ -1,0 +1,5 @@
+# Direct dependencies for Python 3.12. Full resolved set: requirements-lock.txt
+checkov==3.3.8
+pydantic==2.14.0
+PyYAML==6.0.3
+pytest==9.1.1

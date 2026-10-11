@@ -1,0 +1,19 @@
+# Explicit V.A.L.I.D. policy for Checkov 3.3.8 rule IDs.
+# Loads directly as ValidConfig(checkov_severity_map=...).
+# Checkov 3.3.8 reports no severity for these checks offline, so priority comes
+# from this map (severity_origin=rule_map). IDs not listed here keep their actual
+# scanner severity, or unknown when absent, with policy_mode=warn.
+checkov_severity_map:
+  # Ensure no security groups allow ingress from 0.0.0.0:0 to port 22
+  # (aws_security_group, aws_security_group_rule, aws_vpc_security_group_ingress_rule)
+  CKV_AWS_24:
+    priority: high
+    category: security
+    policy_mode: block
+    template_id: open_ssh
+  # Ensure that AWS database instances have deletion protection enabled (aws_db_instance)
+  CKV_AWS_293:
+    priority: high
+    category: reliability
+    policy_mode: block
+    template_id: rds_deletion_protection

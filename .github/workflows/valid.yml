@@ -1,0 +1,307 @@
+name: V.A.L.I.D. PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: valid-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  scan:
+    name: Scan PR Terraform
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 12
+    steps:
+      - name: Checkout trusted reviewer at the exact base commit
+        id: base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-base
+          persist-credentials: false
+
+      - name: Checkout PR head as data only at the exact head commit
+        id: head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr-head
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        id: python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install reviewer from the trusted lock
+        id: install
+        env:
+          DIST_DIR: ${{ runner.temp }}/valid-dist
+        run: |
+          python -m pip install --disable-pip-version-check --no-cache-dir -r trusted-base/requirements-lock.txt
+          python -m pip install --disable-pip-version-check --no-cache-dir setuptools==80.9.0
+          python -m pip wheel --disable-pip-version-check --no-deps --no-build-isolation --no-index -w "$DIST_DIR" ./trusted-base
+          set -- "$DIST_DIR"/valid-*.whl
+          [ "$#" -eq 1 ] && [ -f "$1" ]
+          python -m pip install --disable-pip-version-check --no-deps --no-index "$1"
+          python -m pip check
+
+      - name: Run trusted scan wrapper on PR data
+        id: scan
+        if: ${{ !cancelled() && steps.base.outcome == 'success' && steps.head.outcome == 'success' && steps.install.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SCAN_DIR: ${{ runner.temp }}/valid-scan
+        run: python -I trusted-base/scripts/ci_scan.py scan --scan-path pr-head/infra --output "$SCAN_DIR" --head-sha "$HEAD_SHA" --timeout 600
+
+      - name: Record INCOMPLETE recovery if no scan result was recorded
+        id: recover
+        if: ${{ !cancelled() && steps.base.outcome == 'success' }}
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SCAN_DIR: ${{ runner.temp }}/valid-scan
+          HEAD_OUTCOME: ${{ steps.head.outcome }}
+          PYTHON_OUTCOME: ${{ steps.python.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+        run: |
+          if [ "$HEAD_OUTCOME" != success ]; then stage=checkout_head
+          elif [ "$PYTHON_OUTCOME" != success ]; then stage=python_setup
+          elif [ "$INSTALL_OUTCOME" != success ]; then stage=dependency_install
+          else stage=scan_wrapper
+          fi
+          python3 -I trusted-base/scripts/ci_scan.py recover --stage "$stage" --output "$SCAN_DIR" --head-sha "$HEAD_SHA"
+
+      - name: Upload scan record and artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: valid-scan
+          path: |
+            ${{ runner.temp }}/valid-scan/scan_meta.json
+            ${{ runner.temp }}/valid-scan/artifacts/
+          if-no-files-found: warn
+          retention-days: 7
+
+  report:
+    name: Report and gate
+    needs: scan
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    timeout-minutes: 5
+    steps:
+      - name: Download scan record and artifacts
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: valid-scan
+          path: scan-output
+
+      - name: Write job summary
+        if: ${{ !cancelled() }}
+        run: |
+          python3 -I - <<'PY'
+          import os
+          from pathlib import Path
+
+          MARKER = "<!-- valid-report -->"
+          comment = Path("scan-output/artifacts/comment.md")
+          body = None
+          try:
+              if not comment.is_symlink() and comment.is_file() and comment.stat().st_size <= 900_000:
+                  text = comment.read_text(encoding="utf-8")
+                  if text.split("\n", 1)[0] == MARKER:
+                      body = text
+          except (OSError, UnicodeDecodeError):
+              body = None
+          if body is None:
+              body = (
+                  MARKER + "\n## V.A.L.I.D. Review - INCOMPLETE\n\n"
+                  "**Required analysis is incomplete: scan artifacts were missing or unusable.**\n\n"
+                  "The final gate fails until a complete scan is recorded for this commit.\n"
+              )
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(body if body.endswith("\n") else body + "\n")
+          PY
+
+      - name: Update sticky PR comment (nonfatal)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          script: |
+            const MARKER = '<!-- valid-report -->';
+            const BOT_LOGIN = 'github-actions[bot]';
+            const MAX_BYTES = 60000;
+            const PAGE_SIZE = 100;
+            const MAX_PAGES = 50;
+            const NOTICE = '\n\n_Report truncated to fit the PR comment limit. Full evidence is in the workflow artifacts._\n';
+            const SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+            const firstLine = (text) => text.split('\n', 1)[0];
+            const fallback = (reason) => [
+              MARKER,
+              '## V.A.L.I.D. Review - INCOMPLETE',
+              '',
+              `**Required analysis is incomplete: ${reason}**`,
+              '',
+              'Do not rely on this review until a complete scan is recorded for this commit.',
+              '',
+            ].join('\n');
+            const boundUtf8 = (text) => {
+              const bytes = Buffer.from(text, 'utf8');
+              if (bytes.length <= MAX_BYTES) return text;
+              let cut = MAX_BYTES - Buffer.byteLength(NOTICE, 'utf8');
+              while (cut > 0 && (bytes[cut] & 0xc0) === 0x80) cut -= 1;
+              return bytes.subarray(0, cut).toString('utf8') + NOTICE;
+            };
+            try {
+              const fs = require('fs');
+              const expected = process.env.HEAD_SHA || '';
+              const prNumber = Number(process.env.PR_NUMBER);
+              if (!SHA.test(expected) || !Number.isInteger(prNumber) || prNumber <= 0) {
+                core.warning('PR comment skipped: event head commit or PR number unavailable.');
+                return;
+              }
+              let meta = null;
+              try {
+                meta = JSON.parse(fs.readFileSync('scan-output/scan_meta.json', 'utf8'));
+              } catch (error) {
+                meta = null;
+              }
+              let body;
+              if (meta === null || typeof meta !== 'object' || Array.isArray(meta)) {
+                body = fallback('the scan record is missing or unreadable.');
+              } else if (meta.head_sha !== expected) {
+                core.warning('PR comment skipped: the scan record belongs to a different commit.');
+                return;
+              } else {
+                let comment = null;
+                try {
+                  comment = fs.readFileSync('scan-output/artifacts/comment.md', 'utf8');
+                } catch (error) {
+                  comment = null;
+                }
+                body = typeof comment === 'string' && firstLine(comment) === MARKER
+                  ? comment
+                  : fallback('the report comment is missing or malformed.');
+              }
+              body = boundUtf8(body);
+              const { owner, repo } = context.repo;
+              const pr = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+              if (!pr || !pr.data || !pr.data.head || pr.data.head.sha !== expected) {
+                core.warning('PR comment skipped: the pull request head moved after this scan.');
+                return;
+              }
+              let existing = null;
+              let exhausted = true;
+              for (let page = 1; page <= MAX_PAGES; page += 1) {
+                const response = await github.rest.issues.listComments({
+                  owner, repo, issue_number: prNumber, per_page: PAGE_SIZE, page,
+                });
+                const comments = Array.isArray(response && response.data) ? response.data : [];
+                existing = comments.find((c) => c && c.user && c.user.login === BOT_LOGIN
+                  && c.user.type === 'Bot' && typeof c.body === 'string' && firstLine(c.body) === MARKER) || null;
+                if (existing !== null || comments.length < PAGE_SIZE) {
+                  exhausted = false;
+                  break;
+                }
+              }
+              if (existing !== null) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+                core.info(`Updated V.A.L.I.D. comment ${existing.id}.`);
+              } else if (exhausted) {
+                core.warning('PR comment skipped: too many comments to locate the existing report safely.');
+              } else {
+                const created = await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
+                core.info(`Created V.A.L.I.D. comment ${created && created.data ? created.data.id : ''}.`);
+              }
+            } catch (error) {
+              const kind = error && error.name ? error.name : 'Error';
+              const code = error && error.status ? ` ${error.status}` : '';
+              core.warning(`PR comment not updated (nonfatal): ${kind}${code}`);
+            }
+
+      - name: Final review gate
+        if: ${{ !cancelled() }}
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SCAN_RESULT: ${{ needs.scan.result }}
+        run: |
+          python3 -I - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          MARKER = "<!-- valid-report -->"
+          ROOT = Path("scan-output")
+          ARTIFACTS = ("raw_checkov.json", "raw_custom.json", "findings.json", "comment.md", "ai.json", "summary.json")
+
+
+          def fail(reason):
+              print(f"V.A.L.I.D. gate: FAILED - {reason}")
+              sys.exit(1)
+
+
+          def read(path):
+              try:
+                  if path.is_symlink() or not path.is_file():
+                      fail(f"{path.name} is missing")
+                  return path.read_text(encoding="utf-8")
+              except (OSError, UnicodeDecodeError):
+                  fail(f"{path.name} is unreadable")
+
+
+          def load_json(path):
+              try:
+                  return json.loads(read(path))
+              except ValueError:
+                  fail(f"{path.name} is not valid JSON")
+
+
+          expected = os.environ.get("EXPECTED_HEAD_SHA", "")
+          if not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", expected):
+              fail("event head commit is unavailable")
+          if os.environ.get("SCAN_RESULT") != "success":
+              fail("scan job did not succeed")
+          meta = load_json(ROOT / "scan_meta.json")
+          if not isinstance(meta, dict) or meta.get("schema") != "valid-scan-meta/1":
+              fail("scan record has an unknown format")
+          if meta.get("head_sha") != expected:
+              fail("scan record does not match the event head commit")
+          status = meta.get("status")
+          if status in ("HIGH RISK", "INCOMPLETE"):
+              fail(f"verdict is {status}")
+          if status not in ("PASS", "REVIEW"):
+              fail("verdict is unknown")
+          if meta.get("completed") is not True or type(meta.get("wrapper_exit")) is not int or meta.get("wrapper_exit") != 0:
+              fail("scan wrapper did not complete with a passing result")
+          if meta.get("validated") is not True:
+              fail("analyzer artifacts were not validated")
+          if type(meta.get("analyzer_exit")) is not int or meta.get("analyzer_exit") != 0:
+              fail("analyzer did not exit 0")
+          for name in ARTIFACTS:
+              read(ROOT / "artifacts" / name)
+          summary = load_json(ROOT / "artifacts" / "summary.json")
+          if not isinstance(summary, dict) or summary.get("schema_version") != "1.0.0" or summary.get("status") != status:
+              fail("summary.json does not match the scan record")
+          lines = read(ROOT / "artifacts" / "comment.md").split("\n")
+          if lines[0] != MARKER or len(lines) < 2 or lines[1] != "## V.A.L.I.D. Review - " + status:
+              fail("comment.md does not match the verdict")
+          print(f"V.A.L.I.D. gate: passed with verdict {status}")
+          PY

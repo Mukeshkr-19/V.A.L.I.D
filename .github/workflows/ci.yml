@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  linux-validation:
+    name: Clean Linux validation and test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install locked dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --no-cache-dir -r requirements-lock.txt
+          python -m pip check
+
+      - name: Run project test suite
+        run: python -m pytest tests -q -p no:cacheprovider -rs
+
+      - name: Bootstrap pinned build backend (network install)
+        run: python -m pip install --disable-pip-version-check --no-cache-dir setuptools==80.9.0
+
+      - name: Build wheel without package-index access
+        run: python -m pip wheel --disable-pip-version-check --no-deps --no-build-isolation --no-index -w "$RUNNER_TEMP/dist" .
+
+      - name: Install built wheel
+        run: |
+          set -- "$RUNNER_TEMP"/dist/valid-*.whl
+          [ "$#" -eq 1 ] && [ -f "$1" ]
+          python -m pip install --disable-pip-version-check --no-deps --no-index "$1"
+
+      - name: Verify installed wheel from an unrelated directory
+        run: |
+          SMOKE="$RUNNER_TEMP/valid-smoke"
+          mkdir -p "$SMOKE"
+          cd "$SMOKE"
+          env -u PYTHONPATH python -I - "$GITHUB_WORKSPACE" <<'PY'
+          import sys
+          from importlib import resources
+          from pathlib import Path
+
+          import valid
+          import valid.cli
+
+          workspace = Path(sys.argv[1]).resolve()
+          package = Path(valid.__file__).resolve().parent
+          policy = Path(str(resources.files("valid").joinpath("data", "checkov_severity.yaml"))).resolve()
+          assert "site-packages" in package.parts, "valid was not imported from the installed wheel"
+          assert workspace not in package.parents, "valid was imported from the source tree"
+          assert policy.is_file() and package in policy.parents, "policy is not packaged with the wheel"
+          assert Path(str(valid.cli.POLICY_FILE)).resolve() == policy
+          print("Installed package and policy data verified")
+          PY
+
+          risky_exit=0
+          env -u PYTHONPATH python -I -m valid scan --path "$GITHUB_WORKSPACE/fixtures/risky" --output risky || risky_exit=$?
+          if [ "$risky_exit" -ne 1 ]; then
+            echo "risky fixture: expected exit 1, got $risky_exit"
+            exit 1
+          fi
+          python -I -c 'import json, sys; s = json.load(open(sys.argv[1], encoding="utf-8")); sys.exit(0 if s.get("status") == "HIGH RISK" else 1)' risky/summary.json \
+            || { echo "risky fixture: expected HIGH RISK"; exit 1; }
+          python -I -c 'import json, sys; a = json.load(open(sys.argv[1], encoding="utf-8")); f = json.load(open(sys.argv[2], encoding="utf-8")); sys.exit(0 if isinstance(a, list) and len(a) == len(f) else 1)' risky/ai.json risky/findings.json \
+            || { echo "risky fixture: ai.json must explain every finding"; exit 1; }
+
+          fixed_exit=0
+          env -u PYTHONPATH python -I -m valid scan --path "$GITHUB_WORKSPACE/fixtures/fixed" --output fixed || fixed_exit=$?
+          if [ "$fixed_exit" -ne 0 ]; then
+            echo "fixed fixture: expected exit 0, got $fixed_exit"
+            exit 1
+          fi
+          python -I -c 'import json, sys; s = json.load(open(sys.argv[1], encoding="utf-8")); sys.exit(0 if s.get("status") in ("PASS", "REVIEW") else 1)' fixed/summary.json \
+            || { echo "fixed fixture: expected PASS or REVIEW"; exit 1; }
+          python -I -c 'import json, sys; sys.exit(0 if isinstance(json.load(open(sys.argv[1], encoding="utf-8")), list) else 1)' fixed/ai.json \
+            || { echo "fixed fixture: ai.json must be a JSON list"; exit 1; }
+          echo "Installed-wheel fixture contracts verified"
+
+      - name: Verify repeat risky scans are byte-identical
+        run: |
+          REPEAT="$RUNNER_TEMP/valid-repeat"
+          mkdir -p "$REPEAT"
+          cd "$REPEAT"
+          seed0_exit=0
+          PYTHONHASHSEED=0 python -I -m valid scan --path "$GITHUB_WORKSPACE/fixtures/risky" --output seed0 || seed0_exit=$?
+          seed1_exit=0
+          PYTHONHASHSEED=1 python -I -m valid scan --path "$GITHUB_WORKSPACE/fixtures/risky" --output seed1 || seed1_exit=$?
+          if [ "$seed0_exit" -ne 1 ] || [ "$seed1_exit" -ne 1 ]; then
+            echo "risky repeat scans: expected exit 1 twice, got $seed0_exit and $seed1_exit"
+            exit 1
+          fi
+          for run in seed0 seed1; do
+            python -I -c 'import json, sys; s = json.load(open(sys.argv[1], encoding="utf-8")); sys.exit(0 if s.get("status") == "HIGH RISK" else 1)' "$run/summary.json" \
+              || { echo "$run: expected HIGH RISK"; exit 1; }
+          done
+          for name in raw_checkov.json raw_custom.json findings.json summary.json comment.md ai.json; do
+            diff -u "seed0/$name" "seed1/$name"
+          done
+          echo "Repeat risky scans are byte-identical"
+
+      - name: Upload validation artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-smoke-artifacts
+          path: |
+            ${{ runner.temp }}/valid-smoke/
+            ${{ runner.temp }}/valid-repeat/
+          if-no-files-found: warn
+          retention-days: 7

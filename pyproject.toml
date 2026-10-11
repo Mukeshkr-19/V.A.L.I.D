@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "valid"
+version = "0.1.0"
+description = "Deterministic Terraform pull-request risk analysis"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pydantic>=2.11,<3",
+    "PyYAML>=6.0,<7",
+]
+
+[project.optional-dependencies]
+scan = ["checkov==3.3.8"]
+test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["valid*"]
+
+[tool.setuptools.package-data]
+valid = ["data/checkov_severity.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-p no:cacheprovider"
