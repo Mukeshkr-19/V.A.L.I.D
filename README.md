@@ -1,12 +1,190 @@
 # V.A.L.I.D.
 
-Deterministic Terraform pull-request risk review.
+**Verification and Analysis Layer for Infrastructure Diffs**
 
-V.A.L.I.D. scans a Terraform source directory, combines Checkov 3.3.8 results
-with three built-in literal checks, and publishes a reproducible verdict plus
-evidence-linked report artifacts. The verdict, score and exit code come only
-from deterministic policy. Optional AI explanations are advisory: they never
-add, remove or change findings, coverage, the verdict or the exit code.
+A GitHub Action and Python CLI that review Terraform code and answer:
+**“Does this change need attention before it is merged?”**
+
+For example, a Terraform file that opens SSH to the internet or disables
+database deletion protection receives **HIGH RISK**, with the exact resource,
+rule and evidence explaining why.
+
+V.A.L.I.D. uses deterministic checks to choose the verdict. It works with
+**no model key, no cloud account and no Terraform installation**. Optional AI
+can explain supplied evidence only; it cannot create findings, choose the
+verdict, change the exit code, deploy infrastructure or merge a PR.
+
+## Start here
+
+- **Try the tool:** follow the five-minute demo below.
+- **Read a result:** open `comment.md` for people or `summary.json` for automation.
+- **Use it on a PR:** put Terraform in `infra/` and open a pull request.
+- **See the walkthrough:** [Demo guide](docs/demo.md).
+- **Understand the safeguards:** [Security guide](docs/security.md).
+
+## Setup
+
+Use **Python 3.12**. Package installation needs internet access.
+These commands start from a fresh clone:
+
+```sh
+git clone https://github.com/Mukeshkr-19/V.A.L.I.D.git
+cd V.A.L.I.D
+python3.12 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements-lock.txt
+python -m pip check
+```
+
+The lock file includes Checkov, the required Terraform scanner. Missing
+Checkov produces `INCOMPLETE`; it does not produce a clean bill of health.
+
+## Five-minute demo
+
+Run these commands from the repository root in the activated environment.
+Disable the optional provider so this demo makes no model calls:
+
+```sh
+export VALID_AI_PROVIDER=disabled
+DEMO_DIR=$(mktemp -d)
+
+python -m valid scan --path fixtures/risky --output "$DEMO_DIR/risky"
+echo "risky exit=$?"
+
+python -m valid scan --path fixtures/fixed --output "$DEMO_DIR/fixed"
+echo "fixed exit=$?"
+```
+
+| Example | Expected verdict | Exit | What it shows |
+|---|---|---|---|
+| `fixtures/risky` | **HIGH RISK** | **1** | Public SSH, missing tags and disabled RDS deletion protection |
+| `fixtures/fixed` | **REVIEW** | **0** | The blocking built-in issues are fixed; other Checkov findings still need review |
+
+**Exit 1 for the risky example is the expected result.** It means the gate
+would block that revision. The fixed example is REVIEW rather than PASS
+because unmapped Checkov findings have unknown severity; fixing the three
+built-in issues does not make the entire Terraform tree issue-free.
+
+Read the reports:
+
+```sh
+cat "$DEMO_DIR/risky/comment.md"
+cat "$DEMO_DIR/fixed/comment.md"
+python -m json.tool "$DEMO_DIR/fixed/summary.json"
+```
+
+Each scan needs a **new or empty output folder**. The demo creates a fresh
+temporary folder every time, so repeat runs do not overwrite evidence.
+The reports describe static source code; no infrastructure is created.
+
+## Scan your Terraform
+
+```sh
+python -m valid scan --path infra --output out/my-scan-1
+```
+
+Replace `infra` with your Terraform directory. Replace the output path for
+the next run, or choose another empty directory. Output cannot be inside
+the scanned directory or point through a symbolic link.
+
+## Understand the verdict
+
+| Verdict | Meaning | Exit |
+|---|---|---|
+| **PASS** | Analysis completed and no policy condition requires review or blocking | 0 |
+| **REVIEW** | Analysis completed, but findings or unknown severity need human review | 0 |
+| **HIGH RISK** | An evaluated deterministic finding matches a blocking high/critical policy | 1 |
+| **INCOMPLETE** | Required analysis failed or could not cover required checks | 1 |
+
+`INCOMPLETE` takes precedence over `HIGH RISK`, then `REVIEW`, then `PASS`.
+Missing input, malformed Terraform and scanner failures cannot silently pass.
+The score is informational; it does not decide the verdict.
+
+## How it works
+
+```text
+Terraform source
+    → Checkov + three built-in rules
+    → normalized findings and evidence IDs
+    → deterministic risk verdict
+    → template explanations (optional constrained AI)
+    → Markdown report + JSON artifacts
+```
+
+The three built-in checks cover:
+
+- SSH ingress open to `0.0.0.0/0` on TCP 22.
+- Missing or empty `owner` / `environment` tags on supported AWS resources.
+- Explicitly disabled RDS deletion protection.
+
+Checkov adds its own policy checks. Values that require variable, module or
+expression resolution can become visible coverage gaps. This is a source
+scanner: it does not read plans or state and does not know whether a resource
+is being created, changed or destroyed. Two detectors can report the same risk.
+
+## What appears on a pull request
+
+The included workflow scans **`infra/` from the PR head** using reviewer
+code from the trusted base commit. It publishes:
+
+1. One sticky comment that updates when another commit is pushed.
+2. The report in the job summary.
+3. Downloadable scan artifacts.
+4. A passing or failing review gate.
+
+To try it, change `infra/main.tf` on a new branch and open a PR to `main`.
+That file is a copy of the fixed synthetic fixture for demonstration.
+The workflow does not deploy it.
+
+**Merge blocking requires a repository branch-protection rule.**
+The workflow reports a failed check; it does not configure branch protection.
+Fork PRs may lack permission to post a comment, while summaries, artifacts and
+the gate still work. Workflow-file changes themselves require human review.
+
+## Report files
+
+| File | Use it for |
+|---|---|
+| `comment.md` | Human-readable verdict, findings and recommended actions |
+| `summary.json` | Verdict, score, counts and coverage for automation |
+| `findings.json` | Individual findings, locations and evidence IDs |
+| `raw_checkov.json` | Sanitized retained Checkov records |
+| `raw_custom.json` | Built-in findings and parser coverage |
+| `ai.json` | Evidence-linked explanations, including template-only runs |
+
+The name `ai.json` does **not** mean a model was called. Completed no-key
+scans write template explanations to this file too. Normal scan publication
+writes all six files together; an output-write failure rolls back the files
+created by that run.
+
+## Run the tests
+
+With the setup above and **Node.js on PATH** for the workflow-comment tests:
+
+```sh
+export VALID_AI_PROVIDER=disabled
+python -m pytest tests -q -p no:cacheprovider -rs
+```
+
+The CLI does not need Node.js. Install `actionlint` to include workflow linting
+in the test suite; that optional test is skipped when the binary is missing.
+
+## Optional AI: what to expect
+
+Templates are the default and the fallback on every provider failure.
+The current AI contract accepts only approved template wording, so it does
+**not** generate new advice or improve the wording. Findings, verdict and exit
+code remain the same with or without a provider.
+
+Nebius mode requires an operator-configured Nebius endpoint and an explicitly
+selected NVIDIA model available to that account. **Live Nebius serving and
+model availability have not been verified.** Successful no-key scans do not
+prove sponsor integration. A provider call served elsewhere does not prove
+Nebius serving.
+
+
+<details>
+<summary>Built-in rules, scanner policy and coverage details</summary>
 
 ## What it checks
 
@@ -63,6 +241,11 @@ Terraform, an empty or missing source directory and internal stage failures
 all produce `INCOMPLETE` with exit 1. Malformed command-line usage and an
 unusable output directory also exit 1.
 
+</details>
+
+<details>
+<summary>Dependency versions and installed-wheel setup</summary>
+
 ## Setup
 
 Requires Python 3.12 (`requires-python = ">=3.12,<3.13"`).
@@ -118,27 +301,10 @@ cd /tmp
 python -I -c "import valid, valid.cli; print(valid.__file__, valid.cli.POLICY_FILE)"
 ```
 
-## Usage
+</details>
 
-```text
-python -m valid scan --path <terraform-dir> --output <new-or-empty-dir>
-```
-
-- `--output` must be a new or empty directory. Existing files are never
-  overwritten, symbolic links are refused, and the output may not be inside
-  the scanned input.
-- Every successful run publishes all six artifacts as one set, or none: if
-  writing fails, files created by the run are rolled back and the command
-  exits 1.
-
-Example with the included fixtures:
-
-```sh
-python -m valid scan --path fixtures/risky --output out/risky   # HIGH RISK, exit 1
-python -m valid scan --path fixtures/fixed --output out/fixed   # REVIEW, exit 0
-```
-
-See [docs/demo.md](docs/demo.md) for a step-by-step walkthrough.
+<details>
+<summary>Artifact schemas and repeatability</summary>
 
 ## Artifacts
 
@@ -160,6 +326,11 @@ do not depend on record order or run time.
 When explanation and report generation succeed, `comment.md` and `ai.json`
 use the same explanation list. An `INCOMPLETE` fallback report can omit the
 detailed explanation table.
+
+</details>
+
+<details>
+<summary>Optional AI provider configuration and validation</summary>
 
 ## Explanations and optional AI
 
@@ -229,6 +400,11 @@ python -m valid scan --path fixtures/risky --output out/risky-ai
 Request and response limits, the process-isolated transport and its
 cancellation behavior are described in [docs/security.md](docs/security.md).
 
+</details>
+
+<details>
+<summary>GitHub workflow permissions, recovery and trust boundaries</summary>
+
 ## GitHub pull-request workflow
 
 `.github/workflows/valid.yml` runs on `pull_request` (opened, synchronize,
@@ -273,6 +449,8 @@ Notes:
 the wheel, and checks the installed CLI against both fixtures and for
 byte-identical repeat scans.
 
+</details>
+
 ## Known limitations
 
 - **Not covered:** IPv6 exposure (for example `::/0`) by the built-in SSH
@@ -288,7 +466,7 @@ byte-identical repeat scans.
   passed 624 tests (the optional actionlint test was skipped), installed-wheel
   fixture checks and exact repeats of all six artifacts. Both workflows passed
   actionlint locally.
-  - The open [demo PR](https://github.com/Mukeshkr-19/V.A.L.I.D/pull/1)
+  - The [demo PR](https://github.com/Mukeshkr-19/V.A.L.I.D/pull/1)
     demonstrated [HIGH RISK / exit 1](https://github.com/Mukeshkr-19/V.A.L.I.D/actions/runs/38176517083),
     [missing-input INCOMPLETE / exit 1](https://github.com/Mukeshkr-19/V.A.L.I.D/actions/runs/38176751486),
     and [fixed REVIEW / exit 0](https://github.com/Mukeshkr-19/V.A.L.I.D/actions/runs/38176876800).
