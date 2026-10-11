@@ -215,9 +215,16 @@ apply only to the default production transport used by the CLI.
   resolution become coverage gaps rather than findings.
 - **Verification so far:** local tests on macOS with Python 3.12, including
   loopback transport tests with synthetic credentials.
-  - Not yet demonstrated: a clean Linux CI run, live PR comments, GitHub
-    artifact transfer between jobs, a successful TLS session with a live
-    provider, Nebius serving and account model availability.
+  [Linux CI](https://github.com/Mukeshkr-19/V.A.L.I.D/actions/runs/38176382089)
+  also passed the test suite, installed-wheel fixtures and exact artifact repeats;
+  its optional actionlint test was skipped because the binary was unavailable.
+  Both workflows passed actionlint locally.
+  - The [demo PR](https://github.com/Mukeshkr-19/V.A.L.I.D/pull/1) demonstrated
+    blocking risky input, blocking missing-input recovery and passing fixed input,
+    artifact transfer between jobs, successful job-summary writes and updates to
+    one sticky bot comment. No infrastructure was deployed.
+  - Not yet demonstrated: a successful TLS session with a live provider, Nebius
+    serving, account model availability or Windows behavior.
   - Dependency versions are pinned, but the lock file does not pin hashes.
 
 ## Sharing reports safely

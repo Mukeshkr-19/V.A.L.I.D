@@ -283,12 +283,19 @@ byte-identical repeat scans.
 - **Unmapped Checkov checks** have unknown severity and produce `REVIEW`.
 - **Redaction** in AI requests and outputs covers documented patterns only
   (see [docs/security.md](docs/security.md)); it cannot recognize every secret.
-- **What has been verified:** the test suite, fixture scans, installed-wheel
-  checks and transport tests pass locally on macOS with Python 3.12.
-  - Not yet demonstrated: a clean Linux CI run, live PR comments, GitHub
-    artifact transport between jobs, a live Nebius request, and account
-    availability of any specific model.
-  - Windows is untested.
+- **What has been verified:** 625 tests pass locally on macOS with Python 3.12.
+  [Linux CI](https://github.com/Mukeshkr-19/V.A.L.I.D/actions/runs/38176382089)
+  passed 624 tests (the optional actionlint test was skipped), installed-wheel
+  fixture checks and exact repeats of all six artifacts. Both workflows passed
+  actionlint locally.
+  - The open [demo PR](https://github.com/Mukeshkr-19/V.A.L.I.D/pull/1)
+    demonstrated [HIGH RISK / exit 1](https://github.com/Mukeshkr-19/V.A.L.I.D/actions/runs/38176517083),
+    [missing-input INCOMPLETE / exit 1](https://github.com/Mukeshkr-19/V.A.L.I.D/actions/runs/38176751486),
+    and [fixed REVIEW / exit 0](https://github.com/Mukeshkr-19/V.A.L.I.D/actions/runs/38176876800).
+    Each run uploaded valid artifacts, completed the job-summary step and updated
+    the same sticky bot comment.
+  - Not yet demonstrated: a live Nebius request, account availability of any
+    specific model, or Windows behavior.
 - **No guarantees** of production readiness, uptime, cost savings or
   compliance.
 
