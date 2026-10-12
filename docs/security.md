@@ -223,8 +223,12 @@ apply only to the default production transport used by the CLI.
     blocking risky input, blocking missing-input recovery and passing fixed input,
     artifact transfer between jobs, successful job-summary writes and updates to
     one sticky bot comment. No infrastructure was deployed.
-  - Not yet demonstrated: a successful TLS session with a live provider, Nebius
-    serving, account model availability or Windows behavior.
+  - A [bounded live synthetic smoke](demo.md#live-verification-receipt) on
+    October 12, 2026 (UTC) verified production HTTPS transport, Nebius Token
+    Factory serving `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`, and strict
+    explanation acceptance. Findings, summary and verdict were unchanged.
+    This is evidence for one account and one request; PR jobs remain template-only.
+  - Not yet demonstrated: Windows behavior or live AI in GitHub PR jobs.
   - Dependency versions are pinned, but the lock file does not pin hashes.
 
 ## Sharing reports safely

@@ -122,13 +122,14 @@ Only do this after you have:
 - confirmation from the provider that the model identifier you plan to use
   is available to your account.
 
-V.A.L.I.D. does not check model availability. This step has not been
-performed as part of the project's own verification.
+V.A.L.I.D. does not check model availability during a scan. A separate
+bounded synthetic smoke verified the model below; its receipt is recorded
+at the end of this section. Confirm its exact ID in your own account's catalog.
 
 ```sh
 export VALID_AI_PROVIDER=nebius
 export VALID_AI_BASE_URL=https://api.tokenfactory.us-central1.nebius.com/v1
-export VALID_AI_MODEL='nvidia/<verified-model-id>'  # replace the placeholder
+export VALID_AI_MODEL='nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B'
 read -rs NEBIUS_API_KEY && export NEBIUS_API_KEY   # type the key; it is not echoed
 python -m valid scan --path fixtures/risky --output "$DEMO/risky-ai"; echo "exit=$?"
 unset NEBIUS_API_KEY
@@ -152,3 +153,29 @@ Safety rules for this step:
   secret and Terraform state files, but review what you stage.
 - Share only the published artifacts. Do not share raw private Terraform, plan
   or state files, or terminal logs that might contain credentials.
+
+### Live verification receipt
+
+A separate operator-run smoke used the production explanation service and
+HTTPS transport from commit
+[`e8abf98`](https://github.com/Mukeshkr-19/V.A.L.I.D/commit/e8abf98b9f0e80c1e6cd1da87f880b1722c4bf00).
+It sent synthetic finding evidence only, made one inference attempt, and saved
+a redacted receipt. No raw response, API key or Authorization header was retained.
+
+| Check | Observed result |
+|---|---|
+| Timestamp | 2026-10-12 02:29:29 UTC |
+| Provider | Nebius Token Factory |
+| HTTPS base URL | `https://api.tokenfactory.us-central1.nebius.com/v1` |
+| Requested and returned model | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` |
+| HTTP status | 200; chat completion received |
+| Product validation | Explanation accepted; approved template wording preserved |
+| Deterministic result | Findings and summary unchanged; HIGH RISK, exit 1 |
+| Attempts / elapsed time | 1 / 3.763 seconds |
+| Token usage | 292 prompt + 467 completion = 759 total |
+| Source integrity | Verified before and after the check |
+
+This establishes live Nebius serving and product response acceptance for one
+account and one synthetic finding. It does not prove that every future request
+will succeed, that other accounts have access, or that GitHub PR jobs call a
+model. The PR workflow intentionally runs without provider credentials.
