@@ -176,11 +176,15 @@ The current AI contract accepts only approved template wording, so it does
 **not** generate new advice or improve the wording. Findings, verdict and exit
 code remain the same with or without a provider.
 
-Nebius mode requires an operator-configured Nebius endpoint and an explicitly
-selected NVIDIA model available to that account. **Live Nebius serving and
-model availability have not been verified.** Successful no-key scans do not
-prove sponsor integration. A provider call served elsewhere does not prove
-Nebius serving.
+**Live Nebius integration verified:** on October 12, 2026 (UTC), one bounded
+request with synthetic finding evidence returned HTTP 200 from Nebius Token
+Factory using `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`. V.A.L.I.D. accepted the
+explanation; the deterministic findings, summary and HIGH RISK / exit 1 result
+stayed unchanged. See the [verification receipt](docs/demo.md#live-verification-receipt).
+
+This proves serving for the tested account at that time. Confirm the exact,
+case-sensitive model ID in your own account's catalog. Templates still work
+without a key, and GitHub PR scans remain template-only.
 
 
 <details>
@@ -377,22 +381,22 @@ Any missing or invalid value means template-only, with no network call.
 is allowed), and a model identifier starting with `nvidia/`. Other hosts,
 paths, ports and model names are rejected. Whether a particular model is
 served for your account is not checked: there is no catalog lookup, default
-or substitution. The planned `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`
-identifier has not been verified as available; confirm it with your provider
-account before relying on it.
+or substitution. `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` was verified in a
+live synthetic smoke test. Model identifiers are case-sensitive: use the exact
+ID returned by your account's catalog, without lowercasing it.
 
 **`openai_compatible`** accepts any explicit HTTPS base URL without embedded
 credentials, query string, fragment, whitespace, or `.`, `..` or empty path
 segments, and any model identifier (up to 128 characters) made of letters,
 digits and `._:/@+-`.
 
-Example (placeholder values only; keep real keys in a secret manager or
+Example using the verified model ID (keep real keys in a secret manager or
 your shell's secure storage, never in files committed to a repository):
 
 ```sh
 export VALID_AI_PROVIDER=nebius
 export VALID_AI_BASE_URL=https://api.tokenfactory.us-central1.nebius.com/v1
-export VALID_AI_MODEL='nvidia/<verified-model-id>'  # replace the placeholder
+export VALID_AI_MODEL='nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B'
 read -rs NEBIUS_API_KEY && export NEBIUS_API_KEY   # type the key; it is not echoed
 python -m valid scan --path fixtures/risky --output out/risky-ai
 ```
