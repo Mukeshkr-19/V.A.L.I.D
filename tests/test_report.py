@@ -31,7 +31,8 @@ def test_exact_evidence_and_locations():
 def test_more_than_ten_findings_collapsed():
     items = [finding(index) for index in range(1,14)]
     document = render(summary(), items, explain(items))
-    assert sum(line.startswith("### ") for line in document.splitlines()) == 10
+    assert sum(line.startswith(tuple("### " + str(i) + "." for i in range(1, 11)))
+               for line in document.splitlines()) == 10
     assert "<summary>3 additional detector findings</summary>" in document
     assert "findings.json" in document
 
@@ -51,7 +52,7 @@ def test_untrusted_text_cannot_inject_markdown_or_mentions():
     assert "\n## forged" not in document
     assert "javascript:" not in document
     assert "@someone" not in document
-    assert "\x60\x60\x60" not in document
+    assert document.count("\x60\x60\x60") == 2  # Only the reviewed, static edit example is fenced.
 
 
 def test_common_secrets_and_private_paths_redacted():

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="300" viewBox="0 0 1120 300" role="img" aria-labelledby="title desc">
+<title id="title">V.A.L.I.D. — From infrastructure evidence to actionable review</title>
+<desc id="desc">Terraform is scanned deterministically. AI explains evidence and proposes actions. Deterministic policy owns the gate.</desc>
+<rect width="1120" height="300" rx="18" fill="#13262d"/><rect x="30" y="30" width="5" height="240" rx="2" fill="#51ddb3"/>
+<g font-family="Arial,Helvetica,sans-serif">
+<text x="62" y="66" font-size="14" font-weight="700" letter-spacing="2" fill="#51ddb3">VERIFICATION AND ANALYSIS LAYER FOR INFRASTRUCTURE DIFFS</text>
+<text x="60" y="124" font-size="46" font-weight="700" fill="#f4f8f7">Evidence first. Useful advice next.</text>
+<text x="62" y="160" font-size="19" fill="#b5cfca">A Terraform PR reviewer with a deterministic gate and an AI review layer.</text>
+<g transform="translate(62 201)">
+<rect width="246" height="54" rx="9" fill="#213d44"/><text x="23" y="34" fill="#f4f8f7" font-size="18">01  Terraform evidence</text>
+<text x="266" y="34" font-size="25" fill="#51ddb3">→</text>
+<rect x="315" width="246" height="54" rx="9" fill="#213d44"/><text x="338" y="34" fill="#f4f8f7" font-size="18">02  AI review + fix plan</text>
+<text x="582" y="34" font-size="25" fill="#51ddb3">→</text>
+<rect x="630" width="306" height="54" rx="9" fill="#168461"/><text x="653" y="34" fill="#ffffff" font-size="18">03  One clear PR report</text>
+</g></g></svg>
