@@ -2,7 +2,7 @@
 
 This walkthrough uses the two included Terraform fixtures. No AI key, cloud
 account or Terraform installation is needed. Set up the environment first as
-described in the [README](../README.md#setup), then run everything from the
+described in the [README](../README.md#quickstart), then run everything from the
 repository root.
 
 ## 1. Local scan without AI configuration
@@ -113,7 +113,7 @@ the demo branch or deploy anything.
 
 4. Close the draft pull request and delete the branch when finished.
 
-## 4. Optional live AI smoke test (operator only)
+## 4. Generated AI review (operator only)
 
 Only do this after you have:
 
@@ -139,11 +139,16 @@ Expected results:
 
 - The status and exit code are the same as the no-key run (`HIGH RISK`, exit 1).
 - `findings.json` and `summary.json` are byte-identical to the no-key run.
-- Explanations are identical too, because AI mode may only copy the approved
-  template wording.
-- If the provider is unreachable, slow, or returns anything invalid, the run
-  silently uses the templates. The output alone therefore does not show
-  whether the provider answered.
+- Accepted generated explanations show `origin: "ai"` in `ai.json` and
+  AI-assisted review in `comment.md`. Read the proposed actions and verification
+  questions; the fix plan includes reviewed attribute examples for supported rules.
+- Up to ten distinct issues receive AI review. Unreviewed issues, identical
+  template copies and provider failures show `origin: "template"` and basic guidance.
+- Advice can differ across live calls. Exact finding/evidence references and
+  the deterministic summary must remain unchanged. HTTP success alone does
+  not demonstrate acceptance of generated advice.
+- If the provider is unreachable, slow or returns invalid output, the report
+  explicitly shows basic guidance. Provider failure never changes the verdict.
 
 Safety rules for this step:
 
@@ -178,4 +183,7 @@ a redacted receipt. No raw response, API key or Authorization header was retaine
 This establishes live Nebius serving and product response acceptance for one
 account and one synthetic finding. It does not prove that every future request
 will succeed, that other accounts have access, or that GitHub PR jobs call a
-model. The PR workflow intentionally runs without provider credentials.
+model. This historical request used the earlier template-copy contract; it
+does not validate the new generated-advice behavior. The PR scanning workflow
+intentionally runs without provider credentials. The separate enrichment helpers
+are not yet installed as a privileged GitHub workflow.

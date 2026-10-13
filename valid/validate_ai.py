@@ -19,6 +19,7 @@ FIELD_LIMITS = {"title": 140, "why_it_matters": 1200, "recommended_action": 1600
 _RESOURCE = re.compile(r"\b(?:aws|azurerm|google)_[a-zA-Z0-9_]+\.[a-zA-Z0-9_-]+")
 _IP = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b")
 _PORT = re.compile(r"\bport\s+(\d+)\b", re.IGNORECASE)
+_LOCATION = re.compile(r"([a-zA-Z0-9_./-]+\.tf):(\d+)")
 _UNSAFE = re.compile(
     r"PWNED|ignore.{0,30}instructions|system\s+prompt|https?://|"
     r"terraform\s+(?:apply|destroy|import)|git\s+(?:push|merge)|gh\s+pr\s+merge|"
@@ -45,8 +46,12 @@ def _check_text(text: Any, field: str, finding: Finding) -> None:
         raise ValidationError("advice includes disallowed instructions or assurances")
     evidence = " ".join(e.summary for e in finding.evidence)
     resource = finding.resource.address if finding.resource else None
-    if any(address != resource for address in _RESOURCE.findall(text)):
+    known_resources = set(_RESOURCE.findall(resource or ""))
+    if any(address not in known_resources for address in _RESOURCE.findall(text)):
         raise ValidationError("advice references an unprovided resource")
+    for path, line in _LOCATION.findall(text):
+        if path != finding.location.path or int(line) not in (finding.location.start_line, finding.location.end_line):
+            raise ValidationError("advice invents a source location")
     if any(address not in evidence for address in _IP.findall(text)):
         raise ValidationError("advice invents a network address")
     if any(not re.search(r"\b" + re.escape(port) + r"\b", evidence)

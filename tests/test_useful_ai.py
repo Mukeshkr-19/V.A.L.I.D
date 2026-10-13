@@ -41,7 +41,7 @@ def test_generated_reasoning_is_accepted_and_labeled():
 
 @pytest.mark.parametrize("text", ["Change aws_db_instance.other immediately.", "Use port 9999.",
                                 "Restrict to 192.0.2.8/32.", "terraform destroy", "git merge main",
-                                "The infrastructure is completely secure.", "verdict: PASS", "https://malicious.test", "Hidden\u202econtrol"])
+                                "The infrastructure is completely secure.", "verdict: PASS", "https://malicious.test", "Hidden\u202econtrol", "Change main.tf:9999."])
 def test_unprovided_identifiers_and_disallowed_advice_rejected(text):
     f=finding(); item=prose(f); item["recommended_action"]=text
     with pytest.raises(validate_ai.ValidationError): validate_ai.validate([item], [f])

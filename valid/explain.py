@@ -225,6 +225,7 @@ def _payload_entry(finding: Finding) -> dict[str, Any] | None:
         "evidence_strength": finding.evidence_strength,
         "resource": redact.redact_text(finding.resource.address, max_chars=256) if finding.resource and finding.resource.address else None,
         "location": redact.redact_text(finding.location.path, max_chars=256),
+        "start_line": finding.location.start_line,
         "rule_id": redact.redact_text(finding.source.rule_id, max_chars=128),
         "priority": finding.priority,
         "policy_mode": finding.policy_mode,

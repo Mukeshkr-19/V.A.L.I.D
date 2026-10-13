@@ -87,12 +87,15 @@ link.
 
 ## AI explanations: bounded and constrained
 
-AI is optional and advisory. It runs after the deterministic verdict, and its
-result can only select explanation text.
+AI supplies advisory impact explanations, proposed actions and verification
+questions after the deterministic verdict. Its generated prose cannot change
+detector findings, evidence strength, policy, score, verdict or exit code.
+The report labels accepted generated advice separately from basic guidance.
 
 **Input bounds (checked before any request is built):**
 
-- At most 10 findings per request.
+- At most 10 distinct issue representatives per request. Matching built-in and
+  Checkov detections on the same resource share advice but retain their own IDs.
 - Per finding: at most 16 evidence items. IDs are at most 128 characters,
   evidence summaries at most 4,000 characters, and each approved option at
   most 1,000 characters.
@@ -100,25 +103,30 @@ result can only select explanation text.
 - Evidence summaries are redacted, then truncated to 500 characters.
 - The serialized request is at most 64 KiB. Whole findings are dropped from
   the request to fit; evidence IDs are never truncated.
-- Only redacted evidence summaries, evidence IDs and the approved options are
-  sent. Raw Terraform, plans, state, file contents and repository-derived
-  instructions are never sent.
+- Redacted evidence summaries, evidence IDs, resource/path identity, start line,
+  rule, priority, policy and basic guidance are sent. Raw Terraform, plans,
+  state, file contents and repository-derived instructions are never sent.
 
 **Output bounds:**
 
-- The response is limited to 64 KiB, and the request asks for at most 800
+- The response is limited to 64 KiB, and the request asks for at most 2,400
   tokens.
 - The response must be a JSON array covering exactly the requested findings.
   Each entry must have exactly the permitted keys, the finding's exact
-  evidence IDs, its unchanged evidence strength, and title, why-it-matters
-  and recommended-action text equal to the approved options. The response is
-  validated as received and again after its text fields are redacted.
+  evidence IDs and unchanged evidence strength. Generated titles are bounded
+  at 140 characters, impact explanations at 1,200 and proposed actions at
+  1,600. Validation runs before and after redaction. The model cannot supply
+  the advice-origin field; the validator computes it.
 
-**Constrained wording.** The approved options are currently the single
-deterministic template strings, so a valid response can only reproduce the
-template wording. These checks prove that the explanation matches approved
-text and the cited evidence IDs. They do not prove that arbitrary free-form
-prose is grounded, and V.A.L.I.D. does not accept free-form prose.
+**Advisory wording.** The basic template is context, not mandatory copy text.
+The validator rejects unknown finding/evidence IDs, altered strength, extra
+fields, specific unsupported resource/network/port/source-line references,
+hidden control characters and selected unsafe instructions or assurances.
+Unknown severity and uncertain evidence require a verification caveat.
+These are bounded structural and identifier checks, not complete semantic
+verification: plausible but unsupported prose may pass. Human review is required.
+Report text is escaped and redacted. Terraform examples come from a reviewed
+product catalog, not provider-generated code, and are never executed.
 
 **Template fallback.** Any of the following produces the deterministic
 templates for every finding:
@@ -126,9 +134,12 @@ templates for every finding:
 - no or invalid configuration;
 - network, TLS, DNS, timeout or HTTP errors;
 - redirects, oversized or unparsable responses;
-- validation failures;
+- validation failures (including prompt-injection output that violates the contract);
 - an exhausted budget.
 
+Unselected issues keep basic guidance too. Identical template copies are labeled
+basic even when returned by a provider. Generated prose can vary across calls;
+exact-repeat guarantees apply to basic-mode scans, not live generated advice.
 Findings, summary, verdict and exit code are unaffected by provider failure.
 On completed scans, `ai.json` contains one explanation per finding in finding
 order. A genuine failure of the deterministic templates makes reporting
@@ -174,7 +185,7 @@ runs each attempt in a short-lived child Python process.
 - **Deadline:**
   - One shared 20-second wall-clock budget covers request preparation, all
     attempts, response reads, parsing and validation.
-  - Each attempt's socket timeout is at most 10 seconds and never more than
+  - Each attempt's socket timeout is at most 20 seconds and never more than
     the remaining budget.
   - At most one retry, only after a transport error, HTTP 429 or 5xx, and
     only if budget remains.
@@ -209,7 +220,7 @@ apply only to the default production transport used by the CLI.
   It cannot recognize every secret. Do not put secrets in Terraform, and
   treat artifacts from private repositories as private.
 - **Schema and ID checks** prove structure, coverage and identity, not the
-  truth of free-form text. That is why only approved wording is accepted.
+  truth of generated prose. Proposed actions require environment-specific review.
 - **Static scope:** no plan, apply, state, drift or deployment validation.
   IPv6 exposure is outside the built-in SSH rule, and values that need
   resolution become coverage gaps rather than findings.
@@ -227,8 +238,13 @@ apply only to the default production transport used by the CLI.
     October 12, 2026 (UTC) verified production HTTPS transport, Nebius Token
     Factory serving `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`, and strict
     explanation acceptance. Findings, summary and verdict were unchanged.
-    This is evidence for one account and one request; PR jobs remain template-only.
-  - Not yet demonstrated: Windows behavior or live AI in GitHub PR jobs.
+    This is evidence for one account and one request under the earlier
+    template-copy contract; it does not prove the new generated-advice behavior.
+    PR jobs remain basic-only. AI-enrichment helpers exist but are not wired
+    into a key-bearing workflow.
+  - Not yet demonstrated: Windows behavior, live generated advice under this
+    contract or live AI in GitHub PR jobs. Earlier Linux evidence predates
+    this contract; consult checks for the current commit.
   - Dependency versions are pinned, but the lock file does not pin hashes.
 
 ## Sharing reports safely
