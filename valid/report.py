@@ -6,6 +6,7 @@ import html
 import re
 import unicodedata
 
+from valid import guidance
 from valid.models import Explanation, Finding, RiskSummary
 
 MAX_VISIBLE_FINDINGS = 10
@@ -20,15 +21,15 @@ _ASSIGNMENT = re.compile(
 )
 
 
-def _safe_text(value: str) -> str:
+def _safe_text(value: str, max_chars: int = MAX_FIELD_CHARS) -> str:
     """Make one bounded text field inert in Markdown and strip common secrets."""
     value = _PRIVATE_PATH.sub("[private path]", str(value))
     value = _TOKEN.sub("[redacted]", value)
     value = _ASSIGNMENT.sub(lambda match: match.group(1) + "=[redacted]", value)
     value = "".join(" " if char.isspace() else char for char in value)
     value = "".join(char for char in value if not unicodedata.category(char).startswith("C"))
-    if len(value) > MAX_FIELD_CHARS:
-        value = value[:MAX_FIELD_CHARS] + "..."
+    if len(value) > max_chars:
+        value = value[:max_chars] + "..."
     value = value.replace("@", "[at]")
     escaped = html.escape(value, quote=True)
     return "".join("&#" + str(ord(char)) + ";" if char in _PUNCTUATION else char for char in escaped)
@@ -71,6 +72,7 @@ def _finding_key(finding: Finding) -> tuple:
 def render(summary: RiskSummary, findings: list[Finding], explanations: list[Explanation]) -> str:
     """Render a single static-source report; do not recompute the verdict."""
     indexed = _index_explanations(findings, explanations)
+    ai_count = sum(explanation.origin == "ai" for explanation in explanations)
     lines = [
         "<!-- valid-report -->",
         "## V.A.L.I.D. Review - " + summary.status,
@@ -84,6 +86,16 @@ def render(summary: RiskSummary, findings: list[Finding], explanations: list[Exp
         "**Categories:** " + " · ".join(_safe_text(key) + ": " + str(summary.category_counts[key]) for key in sorted(summary.category_counts)),
         "",
     ]
+    if ai_count:
+        lines.extend([
+            "**Review mode: AI-assisted.** " + str(ai_count) + " detector findings have generated advice; "
+            + str(len(findings) - ai_count) + " use basic guidance.",
+            "AI impact and action text is advisory. Citations validate its references, not every generated claim; review proposed edits before using them.", "",
+        ])
+    else:
+        lines.extend([
+            "**Review mode: basic.** Generated AI advice is unavailable or not configured; deterministic evidence and guidance remain available.", "",
+        ])
     if summary.status == "INCOMPLETE":
         lines.extend(["**Required analysis is incomplete. Resolve the coverage failures and rerun before relying on this review.**", ""])
     groups = (
@@ -101,6 +113,27 @@ def render(summary: RiskSummary, findings: list[Finding], explanations: list[Exp
         if len(unique) > MAX_COVERAGE_ITEMS:
             lines.append("- " + str(len(unique) - MAX_COVERAGE_ITEMS) + " additional entries are available in summary.json.")
         lines.append("")
+    if findings and summary.status != "INCOMPLETE":
+        lines.extend(["### Fix plan", "", "Grouped by the same resource and known rule family; ordered by deterministic priority. Detector findings and their identities are preserved.", ""])
+        representatives = guidance.ordered_representatives(findings)
+        members = {guidance.group_key(group[0]): group for group in guidance.groups(findings)}
+        for position, finding in enumerate(representatives[:MAX_VISIBLE_FINDINGS], 1):
+            group = members[guidance.group_key(finding)]
+            explanation = next((indexed[f.finding_id] for f in group if indexed[f.finding_id].origin == "ai"), indexed[finding.finding_id])
+            kind = "AI advice" if explanation.origin == "ai" else "basic guidance"
+            lines.append(str(position) + ". **" + _safe_text(explanation.title) + "** (" + kind + ")")
+            if finding.resource and finding.resource.address:
+                lines.append("   Resource: " + _safe_text(finding.resource.address))
+            lines.append("   " + _safe_text(explanation.recommended_action, max_chars=1000))
+            lines.append("   Evidence: " + ", ".join(_safe_text(f.finding_id) for f in group))
+            if len(group) > 1:
+                lines.append("   " + str(len(group)) + " corroborating detector findings; one proposed edit.")
+            example = guidance.edit_example(finding)
+            if example:
+                snippet, note = example
+                lines.extend(["", "   Reviewed edit example (not executed):", "", "   ```hcl", *["   " + line for line in snippet.splitlines()], "   ```", "", "   " + _safe_text(note, max_chars=600), ""])
+            lines.append("")
+        lines.extend(["After editing, rerun V.A.L.I.D. with a fresh output directory. A passing gate does not replace human review.", "", "### Detector evidence", ""])
     ordered = sorted(findings, key=_finding_key)
     if not ordered:
         lines.append(
@@ -130,8 +163,9 @@ def render(summary: RiskSummary, findings: list[Finding], explanations: list[Exp
             lines.append("  - " + _safe_text(item.evidence_id) + ": " + _safe_text(item.summary))
         if len(finding.evidence) > MAX_EVIDENCE_ITEMS:
             lines.append("  - Additional evidence is available in findings.json.")
-        lines.append("- **Why it matters:** " + _safe_text(explanation.why_it_matters))
-        lines.append("- **Recommended action:** " + _safe_text(explanation.recommended_action))
+        lines.append("- **Advice source:** " + ("AI-generated; requires review" if explanation.origin == "ai" else "basic deterministic guidance"))
+        lines.append("- **Potential impact:** " + _safe_text(explanation.why_it_matters, max_chars=1200))
+        lines.append("- **Proposed action:** " + _safe_text(explanation.recommended_action, max_chars=1600))
         lines.append("")
     overflow = len(ordered) - MAX_VISIBLE_FINDINGS
     if overflow > 0:

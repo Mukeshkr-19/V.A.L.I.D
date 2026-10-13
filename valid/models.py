@@ -115,6 +115,7 @@ class Explanation(StrictModel):
     why_it_matters: str
     recommended_action: str
     evidence_strength: EvidenceStrength
+    origin: Literal["template", "ai"] = "template"
 
 
 class Coverage(StrictModel):
