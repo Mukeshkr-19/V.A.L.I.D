@@ -78,7 +78,10 @@ bounds apply: ten distinct issues, 2,400 output tokens and a shared 20-second
 budget with at most one transient retry.
 
 Original artifacts and the scan record remain byte-for-byte unchanged; advice
-is published separately. The publisher rechecks the live PR head immediately
+is published separately. Advisory `review_meta.json` retains numeric request/status
+and token counts, a model-match boolean, a controlled finish/fallback code and
+accepted-advice count. It never retains raw provider responses, error messages,
+keys or input evidence. The publisher rechecks the live PR head immediately
 before updating only the existing bot-owned marker comment. It never creates
 a competing comment. Comment errors are nonfatal and cannot alter the gate.
 Provider failure or missing keys visibly retains basic guidance. Protect workflow
