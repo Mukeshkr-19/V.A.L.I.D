@@ -103,8 +103,9 @@ SYSTEM_POLICY = (
     "verification question, never a confirmed violation. "
     "Do not output shell commands, deploy, merge, give security assurances or choose a verdict. "
     "Set evidence_ids to the finding's evidence IDs and evidence_strength to the "
-    "finding's evidence strength. Keep titles under 140 characters and each advice "
-    "field under 600 characters. "
+    "finding's evidence strength. Keep titles under 80 characters, impact under "
+    "160 characters, and actions under 220 characters so the batch fits the response budget. "
+    "Do not include Markdown fences, reasoning text or wrappers outside the JSON array. "
     "Return a single JSON array with one object per finding using exactly the keys "
     "finding_id, evidence_ids, title, why_it_matters, recommended_action, "
     "evidence_strength."
@@ -363,9 +364,20 @@ def _attempt(
     return outcome["value"]
 
 
-def _parse_response(raw: bytes) -> Any:
+def _parse_response(raw: bytes, metrics=None, expected_model=None) -> Any:
     try:
         envelope = json.loads(raw.decode("utf-8"))
+        if metrics is not None and isinstance(envelope, dict):
+            metrics['response_model_matches_requested'] = envelope.get('model') == expected_model
+            choices = envelope.get('choices')
+            if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+                reason = choices[0].get('finish_reason')
+                metrics['finish_reason'] = reason if reason in ('stop', 'length', 'content_filter', 'tool_calls') else 'other'
+            usage = envelope.get('usage')
+            if isinstance(usage, dict):
+                metrics['usage'] = {key:value for key,value in usage.items()
+                                    if key in ('prompt_tokens','completion_tokens','total_tokens')
+                                    and type(value) is int and 0 <= value <= 10000000}
         content = envelope["choices"][0]["message"]["content"]
         if not isinstance(content, str) or not content.strip():
             raise ValueError("empty model content")
@@ -381,6 +393,7 @@ def _request(
     body: bytes,
     transport: Transport,
     deadline: float,
+    metrics=None,
 ) -> Any:
     headers = {
         "Content-Type": "application/json",
@@ -388,19 +401,23 @@ def _request(
         "Authorization": "Bearer " + config["key"],
     }
     for _ in range(MAX_ATTEMPTS):
+        if metrics is not None:
+            metrics['attempts'] += 1
         try:
             status, raw = _attempt(transport, config["endpoint"], headers, body, deadline)
         except BudgetExhausted:
             raise
         except (TransportError, TimeoutError, ConnectionError, OSError):
             continue
+        if metrics is not None and type(status) is int and 100 <= status <= 599:
+            metrics['http_status'] = status
         if status == 429 or 500 <= status <= 599:
             continue
         if status != 200:
             raise AIRequestError("provider returned status %d" % status)
         if len(raw) > MAX_RESPONSE_BYTES:
             raise AIResponseError("provider response exceeds the byte limit")
-        return _parse_response(raw)
+        return _parse_response(raw, metrics, config['model'])
     raise AIRequestError("provider request did not complete within budget")
 
 
@@ -422,6 +439,7 @@ def explain(
     *,
     env: Mapping[str, str] | None = None,
     transport: Transport | None = None,
+    diagnostics: dict | None = None,
 ) -> list[Explanation]:
     """Explain every supplied finding, falling back to templates on any failure.
 
@@ -434,14 +452,22 @@ def explain(
         if not isinstance(finding, Finding):
             raise ValueError("explain requires Finding objects")
     config = _configure(dict(env) if env is not None else os.environ)
+    metrics = {'configured': config is not None, 'attempts':0, 'http_status':None,
+               'finish_reason':None, 'response_model_matches_requested':False,
+               'usage':{}, 'selected_issues':0, 'accepted_findings':0, 'failure_reason':None}
     if config is None or not items:
+        metrics['failure_reason'] = 'not_configured' if config is None else 'no_findings'
+        if diagnostics is not None:
+            diagnostics.update(metrics)
         return templates.explain(items)
     deadline = time.monotonic() + SHARED_BUDGET_SECONDS
     try:
         selected, body = _bounded_request(config["model"], guidance.ordered_representatives(items))
+        metrics['selected_issues'] = len(selected)
         if body is None:
+            metrics['failure_reason'] = 'input_bounds'
             return templates.explain(items)
-        candidate = _request(config, body, transport or _default_transport, deadline)
+        candidate = _request(config, body, transport or _default_transport, deadline, metrics)
         validate_ai.validate(candidate, selected)
         checked = validate_ai.validate(_redacted_items(candidate), selected)
         if time.monotonic() > deadline:
@@ -464,9 +490,27 @@ def explain(
             [finding for finding in items if finding.finding_id not in merged]
         )
         tail = {explanation.finding_id: explanation for explanation in rest}
-        return [
+        result = [
             merged[finding.finding_id] if finding.finding_id in merged else tail[finding.finding_id]
             for finding in items
         ]
-    except Exception:
+        metrics['accepted_findings'] = sum(e.origin == 'ai' for e in result)
+        return result
+    except Exception as error:
+        allowed = {AIResponseError:'response_format', AIRequestError:'provider_status',
+                   BudgetExhausted:'deadline', validate_ai.ValidationError:'advice_validation'}
+        metrics['failure_reason'] = allowed.get(type(error), 'internal_error')
+        if isinstance(error, validate_ai.ValidationError):
+            reasons = {'advice text is empty, invalid, or oversized':'text_bounds',
+                       'advice includes disallowed instructions or assurances':'unsafe_advice',
+                       'advice references an unprovided resource':'resource_reference',
+                       'advice invents a source location':'source_reference',
+                       'advice invents a network address':'network_reference',
+                       'advice invents a port':'port_reference',
+                       'uncertain evidence must retain a verification caveat':'missing_caveat'}
+            metrics['validation_reason'] = reasons.get(str(error), 'structure_or_identity')
         return templates.explain(items)
+    finally:
+        metrics['elapsed_seconds'] = round(max(0, time.monotonic() - (deadline-SHARED_BUDGET_SECONDS)),3)
+        if diagnostics is not None:
+            diagnostics.update(metrics)
