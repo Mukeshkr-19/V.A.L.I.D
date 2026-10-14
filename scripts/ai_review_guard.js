@@ -25,7 +25,9 @@ module.exports = async function guard({ github, context, core }) {
   const number = matching[0].number;
   if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Invalid PR identity');
   const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
-  if (pr.state !== 'open' || pr.head.sha !== run.head_sha || !SHA.test(pr.base.sha || '')) return;
+  if (pr.state !== 'open' || !pr.head || pr.head.sha !== run.head_sha || !pr.base
+      || !SHA.test(pr.base.sha || '') || pr.base.ref !== defaultBranch
+      || !pr.base.repo || pr.base.repo.full_name !== `${owner}/${repo}`) return;
   const headRepo = pr.head.repo;
   if (!headRepo || headRepo.full_name !== `${owner}/${repo}` || !pr.user || !pr.user.login) {
     core.info('AI review skipped: only repository-owned PR branches are enabled.'); return;
@@ -45,9 +47,12 @@ module.exports = async function guard({ github, context, core }) {
     core.warning('AI review skipped: the PR changes the scan workflow. Review that change separately.'); return;
   }
   const { data: result } = await github.rest.actions.listWorkflowRunArtifacts({ owner, repo, run_id: runId, per_page: 100 });
-  if (!Array.isArray(result.artifacts) || result.total_count >= 100) return;
+  if (!Array.isArray(result.artifacts) || !Number.isSafeInteger(result.total_count)
+      || result.total_count < 0 || result.total_count >= 100
+      || result.artifacts.length !== result.total_count) return;
   const artifacts = result.artifacts.filter(a => a.name === 'valid-scan' && !a.expired);
   if (artifacts.length !== 1 || !Number.isSafeInteger(artifacts[0].size_in_bytes)
+      || artifacts[0].size_in_bytes < 0
       || artifacts[0].size_in_bytes > 8 * 1024 * 1024) {
     core.warning('AI review skipped: scan artifact is missing, ambiguous or oversized.'); return;
   }

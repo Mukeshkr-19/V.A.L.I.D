@@ -185,5 +185,6 @@ account and one synthetic finding. It does not prove that every future request
 will succeed, that other accounts have access, or that GitHub PR jobs call a
 model. This historical request used the earlier template-copy contract; it
 does not validate the new generated-advice behavior. The PR scanning workflow
-intentionally runs without provider credentials. The separate enrichment helpers
-are not yet installed as a privileged GitHub workflow.
+intentionally runs without provider credentials. The separate `valid-ai.yml`
+workflow adds advice from validated artifacts when its key is configured and
+the PR passes its trust checks. Its live behavior requires separate evidence.
