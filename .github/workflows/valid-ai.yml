@@ -1,0 +1,101 @@
+name: V.A.L.I.D. AI Review
+
+on:
+  workflow_run:
+    workflows: ['V.A.L.I.D. PR Review']
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: valid-ai-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Evidence-linked AI advice
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Checkout immutable trusted default-branch reviewer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: trusted-default
+          persist-credentials: false
+
+      - name: Verify current writer-owned PR and unchanged scan workflow
+        id: guard
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const guard = require('./trusted-default/scripts/ai_review_guard.js');
+            await guard({github, context, core});
+
+      - name: Download bounded scan record from the verified source run
+        if: steps.guard.outputs.approved == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: valid-scan
+          path: ${{ runner.temp }}/valid-ai-input
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Set up Python 3.12
+        if: steps.guard.outputs.approved == 'true'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install only trusted reviewer and locked dependencies
+        if: steps.guard.outputs.approved == 'true'
+        env:
+          DIST_DIR: ${{ runner.temp }}/valid-ai-dist
+        run: |
+          python -m pip install --disable-pip-version-check --no-cache-dir -r trusted-default/requirements-lock.txt
+          python -m pip install --disable-pip-version-check --no-cache-dir setuptools==80.9.0
+          python -m pip wheel --disable-pip-version-check --no-deps --no-build-isolation --no-index -w "$DIST_DIR" ./trusted-default
+          set -- "$DIST_DIR"/valid-*.whl
+          [ "$#" -eq 1 ] && [ -f "$1" ]
+          python -m pip install --disable-pip-version-check --no-deps --no-index "$1"
+          python -m pip check
+
+      - name: Enrich validated evidence without changing the scan gate
+        id: enrich
+        if: steps.guard.outputs.approved == 'true'
+        continue-on-error: true
+        env:
+          VALID_AI_PROVIDER: nebius
+          VALID_AI_BASE_URL: https://api.tokenfactory.us-central1.nebius.com/v1
+          VALID_AI_MODEL: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B
+          NEBIUS_API_KEY: ${{ secrets.NEBIUS_API_KEY }}
+          HEAD_SHA: ${{ steps.guard.outputs.head_sha }}
+          RECORD_DIR: ${{ runner.temp }}/valid-ai-input
+          REVIEW_DIR: ${{ runner.temp }}/valid-ai-output
+        run: python -I -B trusted-default/scripts/ci_explain.py --record "$RECORD_DIR" --output "$REVIEW_DIR" --head-sha "$HEAD_SHA"
+
+      - name: Update the existing sticky report and advisory job summary
+        if: steps.enrich.outcome == 'success'
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HEAD_SHA: ${{ steps.guard.outputs.head_sha }}
+          PR_NUMBER: ${{ steps.guard.outputs.pr_number }}
+          REVIEW_DIR: ${{ runner.temp }}/valid-ai-output
+        with:
+          script: |
+            const publish = require('./trusted-default/scripts/post_ai_comment.js');
+            await publish({github, context, core});
+
+      - name: Upload separate advisory artifacts
+        if: ${{ !cancelled() && steps.enrich.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: valid-ai-review
+          path: ${{ runner.temp }}/valid-ai-output/
+          if-no-files-found: error
+          retention-days: 7

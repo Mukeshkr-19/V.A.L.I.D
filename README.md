@@ -177,11 +177,25 @@ from the trusted base commit. It publishes a sticky PR comment, job summary,
 downloadable artifacts and a deterministic check result. Revisions update the
 same comment when permissions allow. Fork comments may be unavailable.
 
-**PR scans currently produce basic guidance.** The scanner strips credential
-variables and the included workflows contain no model key. The separate
-AI-enrichment helpers are not wired into a privileged workflow. Enabling that
-automation requires a reviewed default-branch workflow and explicit secret
-configuration; putting a key in the untrusted scanning job is unsafe.
+**AI advice is added after scanning.** The scanner strips credential variables.
+The separate `valid-ai.yml` workflow runs trusted default-branch code after the
+scan completes, reviews the validated evidence and updates the existing comment.
+It never changes the original scan artifacts or gate. Separate advice is saved
+in the `valid-ai-review` artifact and its job summary.
+
+Enable it by storing `NEBIUS_API_KEY` as a repository Actions secret. With the
+GitHub CLI authenticated to your repository, enter the key at its prompt:
+
+~~~sh
+gh secret set NEBIUS_API_KEY --repo Mukeshkr-19/V.A.L.I.D
+~~~
+
+Only open, current same-repository PRs targeting the default branch from authors
+with write/maintain/admin permission qualify. Forks and PRs that alter the scan
+workflow retain basic review. The AI job checks the live head again before
+updating the comment. Missing keys or invalid provider output retain visibly
+labeled basic guidance. An incomplete scan is never enriched. Keep model keys
+out of the PR scanning job and never commit them.
 
 Set a required status check in branch protection if you want failing verdicts
 to block merges. Workflow-file changes require human review. See

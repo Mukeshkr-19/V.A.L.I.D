@@ -54,3 +54,6 @@ output/
 .DS_Store
 .idea/
 .vscode/
+
+# Local documentation presentation notes
+/DESIGN.md

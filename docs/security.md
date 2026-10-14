@@ -51,12 +51,39 @@ link.
     variables.
   - The analyzer's stdout and stderr are discarded, and public diagnostics
     contain only stage names, error types and exit codes.
-  - The workflows define no model secrets.
+  - The scan and report workflows define no model secrets. The separate trusted
+    AI-enrichment job introduces its key only during evidence review.
 - **AI keys stay out of public output.** When an operator enables AI locally,
   the key is used only in the HTTP `Authorization` header. It is never placed
   in the request body, logs, artifacts, process arguments, environment
   variables of the transport process, or files (see
   [Transport lifecycle](#transport-lifecycle)).
+
+## Trusted GitHub AI enrichment
+
+`valid-ai.yml` runs on completion of the existing PR-review workflow. It checks
+out the immutable default-branch event SHA, never PR source. API checks require
+one current open same-repository PR targeting the default branch and an author
+with write/maintain/admin access. The scan workflow must be unchanged between
+the PR base and head. Forks, non-writing authors, changed scanner workflows,
+cancelled runs and stale heads are excluded before introducing the model key.
+
+The job has contents:read, actions:read and pull-requests:write and a six-minute
+deadline. The source artifact must be unique, unexpired and at most 8 MiB.
+Downloaded records must contain exactly the six bounded regular scan files;
+their schemas, counts, evidence references, verdict and recorded exit must agree.
+INCOMPLETE records cannot trigger inference. The model key is scoped to one
+enrichment step after trusted dependencies are installed. The existing inference
+bounds apply: ten distinct issues, 2,400 output tokens and a shared 20-second
+budget with at most one transient retry.
+
+Original artifacts and the scan record remain byte-for-byte unchanged; advice
+is published separately. The publisher rechecks the live PR head immediately
+before updating only the existing bot-owned marker comment. It never creates
+a competing comment. Comment errors are nonfatal and cannot alter the gate.
+Provider failure or missing keys visibly retains basic guidance. Protect workflow
+files through human review; repository writers can edit trusted default-branch
+code and therefore remain part of the operator's trust boundary.
 
 ## Raw-artifact minimization
 
@@ -240,8 +267,8 @@ apply only to the default production transport used by the CLI.
     explanation acceptance. Findings, summary and verdict were unchanged.
     This is evidence for one account and one request under the earlier
     template-copy contract; it does not prove the new generated-advice behavior.
-    PR jobs remain basic-only. AI-enrichment helpers exist but are not wired
-    into a key-bearing workflow.
+    PR scans remain key-free; the separate AI workflow needs a configured secret
+    and live verification before its serving behavior can be claimed.
   - Not yet demonstrated: Windows behavior, live generated advice under this
     contract or live AI in GitHub PR jobs. Earlier Linux evidence predates
     this contract; consult checks for the current commit.
