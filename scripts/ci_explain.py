@@ -61,7 +61,8 @@ def enrich(record: Path, output: Path, head_sha: str) -> str:
     report.render(summary, findings, old_advice)
     if not snapshots["comment.md"].decode("utf-8").startswith("<!-- valid-report -->\n## V.A.L.I.D. Review - " + summary.status + "\n"):
         raise ValueError("original report does not match the scan verdict")
-    advice = explain.explain(findings)
+    diagnostics = {}
+    advice = explain.explain(findings, diagnostics=diagnostics)
     comment = report.render(summary, findings, advice)
     for name, before in snapshots.items():
         if read_regular(artifacts / name) != before:
@@ -69,6 +70,7 @@ def enrich(record: Path, output: Path, head_sha: str) -> str:
     if read_regular(record / "scan_meta.json") != meta_bytes:
         raise ValueError("scan record changed during review")
     contents = {"comment.md": comment,
+                "review_meta.json": json.dumps(diagnostics,sort_keys=True,indent=2)+"\n",
                 "ai.json": json.dumps([e.model_dump(mode="json") for e in advice],sort_keys=True,indent=2)+"\n"}
     output.mkdir(parents=True)
     created = []

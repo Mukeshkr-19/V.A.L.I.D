@@ -182,6 +182,10 @@ The separate `valid-ai.yml` workflow runs trusted default-branch code after the
 scan completes, reviews the validated evidence and updates the existing comment.
 It never changes the original scan artifacts or gate. Separate advice is saved
 in the `valid-ai-review` artifact and its job summary.
+That artifact also includes `review_meta.json`: bounded response status, token
+counts, model-match proof and controlled fallback reasons. Keys and raw provider
+responses are never retained. Use it to distinguish generated advice from a
+successful job that used basic guidance.
 
 Enable it by storing `NEBIUS_API_KEY` as a repository Actions secret. With the
 GitHub CLI authenticated to your repository, enter the key at its prompt:

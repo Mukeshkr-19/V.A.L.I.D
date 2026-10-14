@@ -33,11 +33,11 @@ def snapshot(root): return {str(p.relative_to(root)):p.read_bytes() for p in roo
 def test_generated_advice_preserves_every_original_byte(tmp_path,monkeypatch):
     root=tmp_path/"scan"; f=record(root); before=snapshot(root)
     generated=templates.explain([f])[0].model_copy(update={**prose(f),"origin":"ai"})
-    monkeypatch.setattr(explain,"explain",lambda findings:[generated])
+    monkeypatch.setattr(explain,"explain",lambda findings,**kwargs:[generated])
     out=tmp_path/"review"
     assert ci_explain.enrich(root,out,HEAD)=="ai"
     assert snapshot(root)==before
-    assert {p.name for p in out.iterdir()}=={"ai.json","comment.md"}
+    assert {p.name for p in out.iterdir()}=={"ai.json","comment.md","review_meta.json"}
     assert "Review - HIGH RISK" in (out/"comment.md").read_text()
     assert "Review mode: AI-assisted" in (out/"comment.md").read_text()
 
