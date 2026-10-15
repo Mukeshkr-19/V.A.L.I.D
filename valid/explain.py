@@ -104,6 +104,9 @@ SYSTEM_POLICY = (
     "Do not guess CIDRs, owners, environments, costs, topology, resource names or ports. "
     "Unknown severity or heuristic/not-evaluated evidence must remain a review or "
     "verification question, never a confirmed violation. "
+    "When requires_verification is true, frame the title as a review question, "
+    "describe only possible consequences, and start recommended_action with "
+    "'Verify whether' followed by the context to check before choosing a change. "
     "Do not output shell commands, deploy, merge, give security assurances or choose a verdict. "
     "Set evidence_ids to the finding's evidence IDs and evidence_strength to the "
     "finding's evidence strength. Keep titles under 80 characters, impact under "
@@ -225,6 +228,7 @@ def _payload_entry(finding: Finding) -> dict[str, Any] | None:
         "rule_id": redact.redact_text(finding.source.rule_id, max_chars=128),
         "priority": finding.priority,
         "policy_mode": finding.policy_mode,
+        "requires_verification": finding.evidence_strength != "deterministic" or finding.priority == "unknown",
         "evidence": [
             {
                 "evidence_id": item.evidence_id,

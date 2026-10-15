@@ -86,3 +86,27 @@ def test_nano_thinking_control_is_scoped_to_the_exact_nebius_profile(provider,mo
         return response(prose(f))
     advice=explain.explain([f],env=env,transport=transport)
     assert len(seen)==1 and advice[0].origin=='ai'
+
+
+@pytest.mark.parametrize('priority,strength,required', [
+    ('high','deterministic',False),
+    ('unknown','deterministic',True),
+    ('high','weak_heuristic',True),
+])
+def test_request_makes_uncertainty_requirement_explicit(priority,strength,required):
+    f=finding(priority=priority,strength=strength); seen=[]
+    def transport(url,headers,body,timeout):
+        payload=json.loads(body)
+        entry=json.loads(payload['messages'][1]['content'])['findings'][0]
+        assert entry['requires_verification'] is required
+        assert "'Verify whether'" in payload['messages'][0]['content']
+        seen.append(entry)
+        item=prose(f)
+        if required:
+            item.update(title='Does this administration boundary need review?',
+                        why_it_matters='Unintended administration access could expose this resource.',
+                        recommended_action='Verify whether the reported access matches the approved administration path before choosing a change.')
+        return response(item)
+    result=explain.explain([f],env=ENV,transport=transport)
+    assert len(seen)==1 and result[0].origin=='ai'
+    assert result[0].evidence_strength==strength
