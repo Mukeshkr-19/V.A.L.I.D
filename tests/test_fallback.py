@@ -182,17 +182,8 @@ def test_secret_canaries_absent_from_payload_and_ai_json():
         bodies.append(body)
         payload = json.loads(body.decode("utf-8"))
         entries = json.loads(payload["messages"][1]["content"])["findings"]
-        items = [
-            {
-                "finding_id": entry["finding_id"],
-                "evidence_ids": entry["evidence_ids"],
-                "title": entry["options"]["title"],
-                "why_it_matters": entry["options"]["why_it_matters"],
-                "recommended_action": entry["options"]["recommended_action"],
-                "evidence_strength": entry["evidence_strength"],
-            }
-            for entry in entries
-        ]
+        assert all("options" not in entry for entry in entries)
+        items = _valid_items(findings)
         return _envelope(items)
 
     findings = [_finding(summary=canary_summary)]
