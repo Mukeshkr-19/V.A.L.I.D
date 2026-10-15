@@ -1,6 +1,7 @@
 """Fallback diagnostics retain only bounded numeric and controlled status fields."""
 import json
 import pytest
+import jsonschema
 from valid import explain, templates
 from test_useful_ai import ENV, finding, prose
 
@@ -100,13 +101,25 @@ def test_request_makes_uncertainty_requirement_explicit(priority,strength,requir
         entry=json.loads(payload['messages'][1]['content'])['findings'][0]
         assert entry['requires_verification'] is required
         assert "'Verify whether'" in payload['messages'][0]['content']
+        assert ('response_format' in payload) is required
         seen.append(entry)
         item=prose(f)
         if required:
             item.update(title='Does this administration boundary need review?',
                         why_it_matters='Unintended administration access could expose this resource.',
                         recommended_action='Verify whether the reported access matches the approved administration path before choosing a change.')
+            schema=payload['response_format']['json_schema']['schema']
+            jsonschema.validate([item],schema)
+            bad={**item,'recommended_action':'Change the network.'}
+            with pytest.raises(jsonschema.ValidationError): jsonschema.validate([bad],schema)
         return response(item)
     result=explain.explain([f],env=ENV,transport=transport)
     assert len(seen)==1 and result[0].origin=='ai'
     assert result[0].evidence_strength==strength
+
+
+def test_uncertain_generic_provider_does_not_receive_model_specific_schema():
+    f=finding(priority='unknown')
+    _,body=explain._bounded_request(ENV['VALID_AI_MODEL'],[f],provider='openai_compatible')
+    payload=json.loads(body)
+    assert 'response_format' not in payload and 'chat_template_kwargs' not in payload

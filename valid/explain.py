@@ -239,6 +239,23 @@ def _payload_entry(finding: Finding) -> dict[str, Any] | None:
     }
 
 
+def _verification_schema(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """Constrain uncertain Nano batches without replacing evidence validation."""
+    properties = {
+        "finding_id": {"type": "string", "enum": [e["finding_id"] for e in entries]},
+        "evidence_ids": {"type": "array", "minItems": 1, "maxItems": MAX_EVIDENCE_PER_FINDING,
+                         "items": {"type": "string", "enum": sorted({i for e in entries for i in e["evidence_ids"]})}},
+        "evidence_strength": {"type": "string", "enum": sorted({e["evidence_strength"] for e in entries})},
+        "title": {"type": "string", "minLength": 1, "maxLength": 80},
+        "why_it_matters": {"type": "string", "minLength": 1, "maxLength": 160},
+        "recommended_action": {"type": "string", "minLength": 1, "maxLength": 220,
+                               "pattern": "^Verify whether "},
+    }
+    return {"type": "array", "minItems": len(entries), "maxItems": len(entries),
+            "items": {"type": "object", "properties": properties,
+                      "required": sorted(properties), "additionalProperties": False}}
+
+
 def _body(model: str, entries: list[dict[str, Any]], *, provider: str | None = None) -> bytes:
     payload = {
             "model": model,
@@ -258,6 +275,12 @@ def _body(model: str, entries: list[dict[str, Any]], *, provider: str | None = N
     # allowance for visible advice. Never send model-specific flags elsewhere.
     if provider == "nebius" and model == "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B":
         payload["chat_template_kwargs"] = {"enable_thinking": False}
+        if any(entry["requires_verification"] for entry in entries):
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "evidence_advice", "strict": True,
+                                "schema": _verification_schema(entries)},
+            }
     return json.dumps(
         payload,
         ensure_ascii=False,
