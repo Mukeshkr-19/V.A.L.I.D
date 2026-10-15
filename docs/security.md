@@ -79,6 +79,11 @@ shared 20-second budget with at most one transient retry. Response planning
 currently selects at most three issues within that ceiling; unselected findings
 retain basic guidance. The planning allowance is not a guarantee against
 truncation; invalid or truncated JSON still falls back safely.
+The exact Nebius `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` profile requests
+`chat_template_kwargs.enable_thinking=false` to reserve its small output budget
+for visible advice. Other provider/model combinations receive no such control.
+Provider acceptance does not itself prove the control was honored; complete,
+validated advice is still required.
 
 Original artifacts and the scan record remain byte-for-byte unchanged; advice
 is published separately. Advisory `review_meta.json` retains numeric request/status
