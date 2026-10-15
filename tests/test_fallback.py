@@ -205,7 +205,7 @@ def test_secret_canaries_absent_from_payload_and_ai_json():
     assert "/Users/someone/repo" not in payload
 
 
-def test_partial_top10_selection_templates_the_rest():
+def test_response_budget_selection_templates_the_rest():
     findings = [_finding(summary="public ingress excerpt %d" % i, path="file-%d.tf" % i) for i in range(12)]
     seen = {}
 
@@ -213,10 +213,10 @@ def test_partial_top10_selection_templates_the_rest():
         payload = json.loads(body.decode("utf-8"))
         entries = json.loads(payload["messages"][1]["content"])["findings"]
         seen["count"] = len(entries)
-        return _envelope(_valid_items(findings[:10]))
+        return _envelope(_valid_items(findings[:3]))
 
     result = explain.explain(findings, env=dict(BASE_ENV), transport=_capture)
-    assert seen["count"] == 10
+    assert seen["count"] == 3
     assert _dumped(result) == _templates(findings)
 
 
@@ -356,7 +356,8 @@ def test_oversized_finding_keeps_its_template_while_others_are_sent_in_order():
     assert len(bodies) == 1 and len(bodies[0]) <= explain.MAX_REQUEST_BYTES
 
 
-def test_request_byte_cap_drops_findings_instead_of_truncating():
+def test_request_byte_cap_drops_findings_instead_of_truncating(monkeypatch):
+    monkeypatch.setattr(explain, "MAX_REQUEST_BYTES", 16000)
     long_summary = "public ingress observation " + "x" * 3000
     findings = []
     for index in range(10):
@@ -381,7 +382,7 @@ def test_request_byte_cap_drops_findings_instead_of_truncating():
     assert _dumped(result) == _templates(findings)
     assert len(bodies) == 1 and len(bodies[0]) <= explain.MAX_REQUEST_BYTES
     sent = json.loads(json.loads(bodies[0].decode("utf-8"))["messages"][1]["content"])["findings"]
-    assert 0 < len(sent) < 10
+    assert 0 < len(sent) < 3
     assert [entry["finding_id"] for entry in sent] == [finding.finding_id for finding in findings[: len(sent)]]
 
 

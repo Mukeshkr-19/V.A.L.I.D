@@ -43,3 +43,23 @@ def test_missing_key_has_no_request_and_explicit_reason():
     metrics={}
     explain.explain([finding()],env={},transport=lambda *a:(_ for _ in ()).throw(AssertionError('network')),diagnostics=metrics)
     assert metrics['attempts']==0 and metrics['failure_reason']=='not_configured'
+
+
+def test_response_sized_batch_accepts_advice_and_preserves_unselected_findings():
+    from test_fallback import _finding
+    findings=[_finding(path='file-%02d.tf'%i,summary='Public SSH ingress') for i in range(12)]
+    before=[f.model_dump_json() for f in findings]
+    metrics={}
+    def transport(url,headers,body,timeout):
+        entries=json.loads(json.loads(body)['messages'][1]['content'])['findings']
+        assert len(entries)==3
+        items=[]
+        for entry in entries:
+            item={key:entry[key] for key in ('finding_id','evidence_ids','evidence_strength')}
+            item.update(title='Review this administration boundary',why_it_matters='Untrusted networks could attempt administration access.',recommended_action='Confirm the approved administration path, restrict ingress to it and rerun the scan.')
+            items.append(item)
+        return 200,json.dumps({'choices':[{'message':{'content':json.dumps(items)}}]}).encode()
+    advice=explain.explain(findings,env=ENV,transport=transport,diagnostics=metrics)
+    assert metrics['selected_issues']==3 and metrics['accepted_findings']==3
+    assert [e.origin for e in advice]==['ai']*3+['template']*9
+    assert [f.model_dump_json() for f in findings]==before

@@ -30,8 +30,9 @@ proposes next steps and identifies context a reviewer still needs to confirm.
 | What should I change? | Proposed actions, verification questions and reviewed Terraform attribute examples |
 | Can I trace the claim? | Original detector findings, file locations and stable evidence IDs |
 
-The AI adds review prose instead of copying a canned template. It reviews up to
-**10 distinct issues** per scan; other issues retain basic guidance. Advice is
+The AI adds review prose instead of copying a canned template. It reviews a
+prioritized batch sized to the response budget—currently **3 distinct issues**
+per scan; other issues retain basic guidance. Advice is
 labeled **AI** or **basic** so you can tell what was generated. If the provider
 is unavailable, the report explicitly shows basic guidance.
 
