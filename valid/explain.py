@@ -104,9 +104,9 @@ SYSTEM_POLICY = (
     "Do not guess CIDRs, owners, environments, costs, topology, resource names or ports. "
     "Unknown severity or heuristic/not-evaluated evidence must remain a review or "
     "verification question, never a confirmed violation. "
-    "When requires_verification is true, frame the title as a review question, "
-    "describe only possible consequences, and start recommended_action with "
-    "'Verify whether' followed by the context to check before choosing a change. "
+    "When requires_verification is true, describe only possible consequences "
+    "and explain what context a reviewer should check. The application adds "
+    "detector-owned uncertainty framing; do not present uncertain evidence as confirmed. "
     "Do not output shell commands, deploy, merge, give security assurances or choose a verdict. "
     "Set evidence_ids to the finding's evidence IDs and evidence_strength to the "
     "finding's evidence strength. Keep titles under 80 characters, impact under "
@@ -239,23 +239,6 @@ def _payload_entry(finding: Finding) -> dict[str, Any] | None:
     }
 
 
-def _verification_schema(entries: list[dict[str, Any]]) -> dict[str, Any]:
-    """Constrain uncertain Nano batches without replacing evidence validation."""
-    properties = {
-        "finding_id": {"type": "string", "enum": [e["finding_id"] for e in entries]},
-        "evidence_ids": {"type": "array", "minItems": 1, "maxItems": MAX_EVIDENCE_PER_FINDING,
-                         "items": {"type": "string", "enum": sorted({i for e in entries for i in e["evidence_ids"]})}},
-        "evidence_strength": {"type": "string", "enum": sorted({e["evidence_strength"] for e in entries})},
-        "title": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": r"^.+\?$"},
-        "why_it_matters": {"type": "string", "minLength": 1, "maxLength": 160},
-        "recommended_action": {"type": "string", "minLength": 32, "maxLength": 220,
-                               "pattern": "^Verify whether .+$"},
-    }
-    return {"type": "array", "minItems": len(entries), "maxItems": len(entries),
-            "items": {"type": "object", "properties": properties,
-                      "required": sorted(properties), "additionalProperties": False}}
-
-
 def _body(model: str, entries: list[dict[str, Any]], *, provider: str | None = None) -> bytes:
     payload = {
             "model": model,
@@ -275,12 +258,6 @@ def _body(model: str, entries: list[dict[str, Any]], *, provider: str | None = N
     # allowance for visible advice. Never send model-specific flags elsewhere.
     if provider == "nebius" and model == "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B":
         payload["chat_template_kwargs"] = {"enable_thinking": False}
-        if any(entry["requires_verification"] for entry in entries):
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {"name": "evidence_advice", "strict": True,
-                                "schema": _verification_schema(entries)},
-            }
     return json.dumps(
         payload,
         ensure_ascii=False,
@@ -455,6 +432,39 @@ def _request(
 # --------------------------------------------------------------------------- service
 
 
+def _frame_uncertain_advice(candidate: Any, findings: list[Finding]) -> Any:
+    """Add source-derived review framing without altering model claims or IDs.
+
+    Invalid entries stay unchanged for the independent validator to reject.
+    Verbatim local templates retain their original wording and provenance.
+    """
+    if not isinstance(candidate, list):
+        return candidate
+    by_id = {finding.finding_id: finding for finding in findings}
+    framed = []
+    fields = ("title", "why_it_matters", "recommended_action")
+    for item in candidate:
+        entry = item
+        if isinstance(item, dict) and set(item) == validate_ai.PERMITTED_KEYS:
+            fid = item["finding_id"]
+            finding = by_id.get(fid) if isinstance(fid, str) else None
+            text_valid = all(isinstance(item[field], str) and item[field].strip()
+                             and len(item[field]) <= validate_ai.FIELD_LIMITS[field] for field in fields)
+            if finding is not None and text_valid and (
+                    finding.priority == "unknown" or finding.evidence_strength != "deterministic"):
+                options = validate_ai.permitted_options(finding)
+                copied = all(item[field] == options[field] for field in fields)
+                if not copied and not validate_ai.is_incomplete_action(item["recommended_action"]):
+                    entry = dict(item)
+                    entry["title"] = "Review required: " + item["title"]
+                    entry["why_it_matters"] = "If the reported condition is confirmed: " + item["why_it_matters"]
+                    entry["recommended_action"] = (
+                        "Verify the supplied evidence and relevant context before choosing a change. "
+                        "Proposed action: " + item["recommended_action"])
+        framed.append(entry)
+    return framed
+
+
 def _redacted_items(candidate: Any) -> Any:
     redacted = []
     for item in candidate:
@@ -499,6 +509,7 @@ def explain(
             metrics['failure_reason'] = 'input_bounds'
             return templates.explain(items)
         candidate = _request(config, body, transport or _default_transport, deadline, metrics)
+        candidate = _frame_uncertain_advice(candidate, selected)
         validate_ai.validate(candidate, selected)
         checked = validate_ai.validate(_redacted_items(candidate), selected)
         if time.monotonic() > deadline:

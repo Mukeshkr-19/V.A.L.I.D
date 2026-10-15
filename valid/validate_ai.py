@@ -37,10 +37,14 @@ def permitted_options(finding: Finding) -> dict[str, str]:
     return {field: getattr(template, field) for field in _PERMITTED_FIELDS}
 
 
+def is_incomplete_action(text: str) -> bool:
+    return re.fullmatch(r"\s*verify\s+whether[\W_]*", text, re.IGNORECASE) is not None
+
+
 def _check_text(text: Any, field: str, finding: Finding) -> None:
     if not isinstance(text, str) or not text.strip() or len(text) > FIELD_LIMITS[field]:
         raise ValidationError("advice text is empty, invalid, or oversized")
-    if field == "recommended_action" and re.fullmatch(r"\s*verify\s+whether[\W_]*", text, re.IGNORECASE):
+    if field == "recommended_action" and is_incomplete_action(text):
         raise ValidationError("advice action is incomplete")
     if any(unicodedata.category(c).startswith("C") and c not in "\n\t\r" for c in text):
         raise ValidationError("advice contains hidden control characters")
