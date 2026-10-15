@@ -74,8 +74,11 @@ Downloaded records must contain exactly the six bounded regular scan files;
 their schemas, counts, evidence references, verdict and recorded exit must agree.
 INCOMPLETE records cannot trigger inference. The model key is scoped to one
 enrichment step after trusted dependencies are installed. The existing inference
-bounds apply: ten distinct issues, 2,400 output tokens and a shared 20-second
-budget with at most one transient retry.
+bounds apply: a hard ceiling of ten distinct issues, 2,400 output tokens and a
+shared 20-second budget with at most one transient retry. Response planning
+currently selects at most three issues within that ceiling; unselected findings
+retain basic guidance. The planning allowance is not a guarantee against
+truncation; invalid or truncated JSON still falls back safely.
 
 Original artifacts and the scan record remain byte-for-byte unchanged; advice
 is published separately. Advisory `review_meta.json` retains numeric request/status
@@ -124,7 +127,8 @@ The report labels accepted generated advice separately from basic guidance.
 
 **Input bounds (checked before any request is built):**
 
-- At most 10 distinct issue representatives per request. Matching built-in and
+- At most 3 distinct issue representatives under the current response budget
+  (hard ceiling 10). Matching built-in and
   Checkov detections on the same resource share advice but retain their own IDs.
 - Per finding: at most 16 evidence items. IDs are at most 128 characters,
   evidence summaries at most 4,000 characters, and each approved option at
