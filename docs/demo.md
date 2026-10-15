@@ -142,8 +142,9 @@ Expected results:
 - Accepted generated explanations show `origin: "ai"` in `ai.json` and
   AI-assisted review in `comment.md`. Read the proposed actions and verification
   questions; the fix plan includes reviewed attribute examples for supported rules.
-- Up to ten distinct issues receive AI review. Unreviewed issues, identical
-  template copies and provider failures show `origin: "template"` and basic guidance.
+- The response budget currently selects up to three distinct issues for AI review.
+  Unreviewed issues, identical template copies and provider failures show
+  `origin: "template"` and basic guidance.
 - Advice can differ across live calls. Exact finding/evidence references and
   the deterministic summary must remain unchanged. HTTP success alone does
   not demonstrate acceptance of generated advice.
