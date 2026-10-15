@@ -175,6 +175,13 @@ def _echo_ai(calls: Path) -> str:
     return (
         "import json as _json, os as _os\n"
         "import valid.explain as _ai\n"
+        "_original_bounded_request = _ai._bounded_request\n"
+        "_selected_for_echo = []\n"
+        "def _capture_selection(model, candidates):\n"
+        "    selected, body = _original_bounded_request(model, candidates)\n"
+        "    _selected_for_echo[:] = selected\n"
+        "    return selected, body\n"
+        "_ai._bounded_request = _capture_selection\n"
         "for _k, _v in {'VALID_AI_PROVIDER': 'openai_compatible', 'VALID_AI_BASE_URL': 'https://ai.example.test', 'VALID_AI_MODEL': 'test-model', 'VALID_AI_API_KEY': 'TEST-KEY-CANARY-1'}.items():\n"
         "    _os.environ[_k] = _v\n"
         "def _echo(url, headers, body, timeout):\n"
@@ -184,7 +191,8 @@ def _echo_ai(calls: Path) -> str:
         "    assert headers['Authorization'] == 'Bearer TEST-KEY-CANARY-1'\n"
         "    payload = _json.loads(body.decode('utf-8'))\n"
         "    entries = _json.loads(payload['messages'][1]['content'])['findings']\n"
-        "    items = [{'finding_id': e['finding_id'], 'evidence_ids': e['evidence_ids'], 'title': e['options']['title'], 'why_it_matters': e['options']['why_it_matters'], 'recommended_action': e['options']['recommended_action'], 'evidence_strength': e['evidence_strength']} for e in entries]\n"
+        "    assert all('options' not in e for e in entries)\n"
+        "    items = [e.model_dump(exclude={'origin'}) for e in _ai.templates.explain(_selected_for_echo)]\n"
         "    return 200, _json.dumps({'choices': [{'message': {'content': _json.dumps(items)}}]}).encode('utf-8')\n"
         "_ai._default_transport = _echo\n"
     )

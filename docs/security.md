@@ -130,15 +130,14 @@ The report labels accepted generated advice separately from basic guidance.
 - At most 3 distinct issue representatives under the current response budget
   (hard ceiling 10). Matching built-in and
   Checkov detections on the same resource share advice but retain their own IDs.
-- Per finding: at most 16 evidence items. IDs are at most 128 characters,
-  evidence summaries at most 4,000 characters, and each approved option at
-  most 1,000 characters.
+- Per finding: at most 16 evidence items. IDs are at most 128 characters and
+  evidence summaries at most 4,000 characters.
 - A finding over any bound is not sent and keeps its template.
 - Evidence summaries are redacted, then truncated to 500 characters.
 - The serialized request is at most 64 KiB. Whole findings are dropped from
   the request to fit; evidence IDs are never truncated.
 - Redacted evidence summaries, evidence IDs, resource/path identity, start line,
-  rule, priority, policy and basic guidance are sent. Raw Terraform, plans,
+  rule, priority and policy are sent. Fallback wording stays local. Raw Terraform, plans,
   state, file contents and repository-derived instructions are never sent.
 
 **Output bounds:**
@@ -152,7 +151,8 @@ The report labels accepted generated advice separately from basic guidance.
   1,600. Validation runs before and after redaction. The model cannot supply
   the advice-origin field; the validator computes it.
 
-**Advisory wording.** The basic template is context, not mandatory copy text.
+**Advisory wording.** The model composes advice from detector evidence; fallback
+templates are not included in its input.
 The validator rejects unknown finding/evidence IDs, altered strength, extra
 fields, specific unsupported resource/network/port/source-line references,
 hidden control characters and selected unsafe instructions or assurances.

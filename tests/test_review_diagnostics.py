@@ -53,6 +53,7 @@ def test_response_sized_batch_accepts_advice_and_preserves_unselected_findings()
     def transport(url,headers,body,timeout):
         entries=json.loads(json.loads(body)['messages'][1]['content'])['findings']
         assert len(entries)==3
+        assert all('options' not in entry for entry in entries)
         items=[]
         for entry in entries:
             item={key:entry[key] for key in ('finding_id','evidence_ids','evidence_strength')}
