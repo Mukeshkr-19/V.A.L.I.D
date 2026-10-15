@@ -246,10 +246,10 @@ def _verification_schema(entries: list[dict[str, Any]]) -> dict[str, Any]:
         "evidence_ids": {"type": "array", "minItems": 1, "maxItems": MAX_EVIDENCE_PER_FINDING,
                          "items": {"type": "string", "enum": sorted({i for e in entries for i in e["evidence_ids"]})}},
         "evidence_strength": {"type": "string", "enum": sorted({e["evidence_strength"] for e in entries})},
-        "title": {"type": "string", "minLength": 1, "maxLength": 80},
+        "title": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": r"^.+\?$"},
         "why_it_matters": {"type": "string", "minLength": 1, "maxLength": 160},
-        "recommended_action": {"type": "string", "minLength": 1, "maxLength": 220,
-                               "pattern": "^Verify whether "},
+        "recommended_action": {"type": "string", "minLength": 32, "maxLength": 220,
+                               "pattern": "^Verify whether .+$"},
     }
     return {"type": "array", "minItems": len(entries), "maxItems": len(entries),
             "items": {"type": "object", "properties": properties,
@@ -533,6 +533,7 @@ def explain(
         metrics['failure_reason'] = allowed.get(type(error), 'internal_error')
         if isinstance(error, validate_ai.ValidationError):
             reasons = {'advice text is empty, invalid, or oversized':'text_bounds',
+                       'advice action is incomplete':'incomplete_action',
                        'advice includes disallowed instructions or assurances':'unsafe_advice',
                        'advice references an unprovided resource':'resource_reference',
                        'advice invents a source location':'source_reference',

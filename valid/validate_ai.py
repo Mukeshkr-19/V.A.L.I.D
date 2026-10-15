@@ -40,6 +40,8 @@ def permitted_options(finding: Finding) -> dict[str, str]:
 def _check_text(text: Any, field: str, finding: Finding) -> None:
     if not isinstance(text, str) or not text.strip() or len(text) > FIELD_LIMITS[field]:
         raise ValidationError("advice text is empty, invalid, or oversized")
+    if field == "recommended_action" and re.fullmatch(r"\s*verify\s+whether[\W_]*", text, re.IGNORECASE):
+        raise ValidationError("advice action is incomplete")
     if any(unicodedata.category(c).startswith("C") and c not in "\n\t\r" for c in text):
         raise ValidationError("advice contains hidden control characters")
     if _UNSAFE.search(text):
