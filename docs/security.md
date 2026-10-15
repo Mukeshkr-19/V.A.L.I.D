@@ -84,6 +84,11 @@ The exact Nebius `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` profile requests
 for visible advice. Other provider/model combinations receive no such control.
 Provider acceptance does not itself prove the control was honored; complete,
 validated advice is still required.
+When this Nano profile includes uncertain findings, the request also supplies a
+strict JSON schema with bounded fields, allowed IDs and a verification-action
+prefix. This is a generation aid: independent per-finding evidence and wording
+validation still runs afterward. Generic providers keep their existing request
+format. An unsupported or ignored constraint still falls back safely.
 
 Original artifacts and the scan record remain byte-for-byte unchanged; advice
 is published separately. Advisory `review_meta.json` retains numeric request/status
