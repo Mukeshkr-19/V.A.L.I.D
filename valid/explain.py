@@ -235,9 +235,8 @@ def _payload_entry(finding: Finding) -> dict[str, Any] | None:
     }
 
 
-def _body(model: str, entries: list[dict[str, Any]]) -> bytes:
-    return json.dumps(
-        {
+def _body(model: str, entries: list[dict[str, Any]], *, provider: str | None = None) -> bytes:
+    payload = {
             "model": model,
             "max_tokens": MAX_TOKENS,
             "temperature": 0,
@@ -250,13 +249,19 @@ def _body(model: str, entries: list[dict[str, Any]]) -> bytes:
                     ),
                 },
             ],
-        },
+        }
+    # Nano's documented chat-template control reserves this small completion
+    # allowance for visible advice. Never send model-specific flags elsewhere.
+    if provider == "nebius" and model == "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B":
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
+    return json.dumps(
+        payload,
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
 
 
-def _bounded_request(model: str, candidates: list[Finding]) -> tuple[list[Finding], bytes | None]:
+def _bounded_request(model: str, candidates: list[Finding], *, provider: str | None = None) -> tuple[list[Finding], bytes | None]:
     """Select in-bound findings and build a request no larger than MAX_REQUEST_BYTES.
 
     Returns the findings actually sent (input order) and the request body, or
@@ -275,7 +280,7 @@ def _bounded_request(model: str, candidates: list[Finding]) -> tuple[list[Findin
             if len(selected) == issue_budget:
                 break
     while entries:
-        body = _body(model, entries)
+        body = _body(model, entries, provider=provider)
         if len(body) <= MAX_REQUEST_BYTES:
             return selected, body
         selected.pop()
@@ -461,7 +466,7 @@ def explain(
         return templates.explain(items)
     deadline = time.monotonic() + SHARED_BUDGET_SECONDS
     try:
-        selected, body = _bounded_request(config["model"], guidance.ordered_representatives(items))
+        selected, body = _bounded_request(config["model"], guidance.ordered_representatives(items), provider=config["provider"])
         metrics['selected_issues'] = len(selected)
         if body is None:
             metrics['failure_reason'] = 'input_bounds'
