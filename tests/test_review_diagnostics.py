@@ -2,7 +2,7 @@
 import json
 import pytest
 import jsonschema
-from valid import explain, templates
+from valid import explain, templates, validate_ai
 from test_useful_ai import ENV, finding, prose
 
 
@@ -112,6 +112,10 @@ def test_request_makes_uncertainty_requirement_explicit(priority,strength,requir
             jsonschema.validate([item],schema)
             bad={**item,'recommended_action':'Change the network.'}
             with pytest.raises(jsonschema.ValidationError): jsonschema.validate([bad],schema)
+            with pytest.raises(jsonschema.ValidationError):
+                jsonschema.validate([{**item,'recommended_action':'Verify whether '}],schema)
+            with pytest.raises(jsonschema.ValidationError):
+                jsonschema.validate([{**item,'title':'The resource lacks a control'}],schema)
         return response(item)
     result=explain.explain([f],env=ENV,transport=transport)
     assert len(seen)==1 and result[0].origin=='ai'
@@ -123,3 +127,14 @@ def test_uncertain_generic_provider_does_not_receive_model_specific_schema():
     _,body=explain._bounded_request(ENV['VALID_AI_MODEL'],[f],provider='openai_compatible')
     payload=json.loads(body)
     assert 'response_format' not in payload and 'chat_template_kwargs' not in payload
+
+
+@pytest.mark.parametrize('action',['Verify whether','Verify whether ',' Verify whether?! ','Verify whether\n'])
+def test_incomplete_verification_action_is_rejected_independently(action):
+    f=finding(priority='unknown'); item=prose(f); item['recommended_action']=action
+    with pytest.raises(validate_ai.ValidationError,match='advice action is incomplete'):
+        validate_ai.validate([item],[f])
+    metrics={}
+    result=explain.explain([f],env=ENV,transport=lambda *a:response(item),diagnostics=metrics)
+    assert result==templates.explain([f])
+    assert metrics['validation_reason']=='incomplete_action' and metrics['accepted_findings']==0
