@@ -1,5 +1,6 @@
 """Fallback diagnostics retain only bounded numeric and controlled status fields."""
 import json
+import pytest
 from valid import explain, templates
 from test_useful_ai import ENV, finding, prose
 
@@ -64,3 +65,24 @@ def test_response_sized_batch_accepts_advice_and_preserves_unselected_findings()
     assert metrics['selected_issues']==3 and metrics['accepted_findings']==3
     assert [e.origin for e in advice]==['ai']*3+['template']*9
     assert [f.model_dump_json() for f in findings]==before
+
+
+@pytest.mark.parametrize('provider,model,expected', [
+    ('nebius','nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B',True),
+    ('nebius','nvidia/another-model',False),
+    ('openai_compatible','nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B',False),
+])
+def test_nano_thinking_control_is_scoped_to_the_exact_nebius_profile(provider,model,expected):
+    f=finding(); seen=[]
+    env={**ENV,'VALID_AI_PROVIDER':provider,'VALID_AI_MODEL':model,
+         'VALID_AI_API_KEY':'TEST-ONLY-KEY',
+         'VALID_AI_BASE_URL':'https://api.tokenfactory.us-central1.nebius.com/v1'}
+    def transport(url,headers,body,timeout):
+        payload=json.loads(body); seen.append(payload)
+        assert payload['max_tokens']==2400
+        assert ('chat_template_kwargs' in payload)==expected
+        if expected:
+            assert payload['chat_template_kwargs']=={'enable_thinking':False}
+        return response(prose(f))
+    advice=explain.explain([f],env=env,transport=transport)
+    assert len(seen)==1 and advice[0].origin=='ai'
