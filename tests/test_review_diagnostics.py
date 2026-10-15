@@ -1,7 +1,6 @@
 """Fallback diagnostics retain only bounded numeric and controlled status fields."""
 import json
 import pytest
-import jsonschema
 from valid import explain, templates, validate_ai
 from test_useful_ai import ENV, finding, prose
 
@@ -100,26 +99,22 @@ def test_request_makes_uncertainty_requirement_explicit(priority,strength,requir
         payload=json.loads(body)
         entry=json.loads(payload['messages'][1]['content'])['findings'][0]
         assert entry['requires_verification'] is required
-        assert "'Verify whether'" in payload['messages'][0]['content']
-        assert ('response_format' in payload) is required
+        assert 'detector-owned uncertainty framing' in payload['messages'][0]['content']
+        assert 'response_format' not in payload
         seen.append(entry)
         item=prose(f)
         if required:
             item.update(title='Does this administration boundary need review?',
                         why_it_matters='Unintended administration access could expose this resource.',
                         recommended_action='Verify whether the reported access matches the approved administration path before choosing a change.')
-            schema=payload['response_format']['json_schema']['schema']
-            jsonschema.validate([item],schema)
-            bad={**item,'recommended_action':'Change the network.'}
-            with pytest.raises(jsonschema.ValidationError): jsonschema.validate([bad],schema)
-            with pytest.raises(jsonschema.ValidationError):
-                jsonschema.validate([{**item,'recommended_action':'Verify whether '}],schema)
-            with pytest.raises(jsonschema.ValidationError):
-                jsonschema.validate([{**item,'title':'The resource lacks a control'}],schema)
         return response(item)
     result=explain.explain([f],env=ENV,transport=transport)
     assert len(seen)==1 and result[0].origin=='ai'
     assert result[0].evidence_strength==strength
+    if required:
+        assert result[0].title.startswith('Review required: ')
+        assert result[0].why_it_matters.startswith('If the reported condition is confirmed: ')
+        assert result[0].recommended_action.startswith('Verify the supplied evidence')
 
 
 def test_uncertain_generic_provider_does_not_receive_model_specific_schema():
@@ -138,3 +133,34 @@ def test_incomplete_verification_action_is_rejected_independently(action):
     result=explain.explain([f],env=ENV,transport=lambda *a:response(item),diagnostics=metrics)
     assert result==templates.explain([f])
     assert metrics['validation_reason']=='incomplete_action' and metrics['accepted_findings']==0
+
+
+def test_detector_owned_framing_keeps_uncertain_model_proposal_and_findings_intact():
+    f=finding(priority='unknown'); before=f.model_dump_json()
+    item=prose(f)
+    item.update(title='Administration boundary',why_it_matters='Untrusted networks could reach administration services.',
+                recommended_action='Restrict ingress to the approved administration path.')
+    with pytest.raises(validate_ai.ValidationError,match='verification caveat'):
+        validate_ai.validate([item],[f])
+    result=explain.explain([f],env=ENV,transport=lambda *a:response(item))[0]
+    assert result.origin=='ai' and result.title=='Review required: '+item['title']
+    assert result.why_it_matters.endswith(item['why_it_matters'])
+    assert result.recommended_action.endswith(item['recommended_action'])
+    assert result.evidence_ids==item['evidence_ids'] and f.model_dump_json()==before
+
+
+@pytest.mark.parametrize('changes',[
+    {'recommended_action':''},
+    {'recommended_action':'Change aws_db_instance.unprovided.'},
+    {'recommended_action':'terraform apply'},
+    {'origin':'ai'},
+])
+def test_uncertainty_framing_cannot_rescue_invalid_or_unsafe_model_output(changes):
+    f=finding(priority='unknown'); item={**prose(f),**changes}
+    result=explain.explain([f],env=ENV,transport=lambda *a:response(item))
+    assert result==templates.explain([f])
+
+
+def test_uncertain_verbatim_templates_stay_basic_and_unmodified():
+    f=finding(priority='unknown'); item=templates.explain([f])[0].model_dump(exclude={'origin'})
+    assert explain.explain([f],env=ENV,transport=lambda *a:response(item))==templates.explain([f])
