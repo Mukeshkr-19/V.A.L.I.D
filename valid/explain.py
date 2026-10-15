@@ -1,7 +1,7 @@
 """Bounded evidence-only AI explanations with deterministic template fallback.
 
 ``explain(findings)`` returns exactly one Explanation per supplied finding,
-in input order. The configured model reviews up to ten distinct issues and
+in input order. The configured model reviews a response-budgeted batch of issues and
 writes contextual impact and proposed remediation advice. Related detectors
 share that review without losing their individual evidence references.
 Unreviewed issues and provider failures use basic deterministic guidance.
@@ -68,6 +68,10 @@ MAX_ATTEMPTS = 2
 CANCEL_JOIN_SECONDS = 2.0
 MAX_RESPONSE_BYTES = 64 * 1024
 MAX_TOKENS = 2400
+# Planning allowance includes JSON identity fields, advice and reasoning. It
+# reduces batch size, never raises the provider token cap or wall deadline.
+RESPONSE_OVERHEAD_TOKENS = 300
+RESPONSE_TOKENS_PER_ISSUE = 700
 MAX_SUMMARY_CHARS = 500
 MAX_SUMMARY_INPUT_CHARS = 4000
 MAX_EVIDENCE_PER_FINDING = 16
@@ -270,11 +274,16 @@ def _bounded_request(model: str, candidates: list[Finding]) -> tuple[list[Findin
     """
     selected: list[Finding] = []
     entries: list[dict[str, Any]] = []
+    issue_budget = min(MAX_SELECTED_FINDINGS, max(0, (MAX_TOKENS-RESPONSE_OVERHEAD_TOKENS)//RESPONSE_TOKENS_PER_ISSUE))
+    if issue_budget == 0:
+        return [], None
     for finding in candidates[:MAX_SELECTED_FINDINGS]:
         entry = _payload_entry(finding)
         if entry is not None:
             selected.append(finding)
             entries.append(entry)
+            if len(selected) == issue_budget:
+                break
     while entries:
         body = _body(model, entries)
         if len(body) <= MAX_REQUEST_BYTES:
